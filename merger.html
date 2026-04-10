@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Video Merger Studio</title>
+
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #f0f0f0; }
+    .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    h1 { text-align: center; margin-bottom: 5px; }
+    .subtitle { text-align: center; color: #666; font-size: 13px; margin-bottom: 20px; }
+    
+    .input-group { margin-bottom: 20px; padding: 15px; border: 1px dashed #ccc; border-radius: 6px; background: #fafafa; }
+    .input-group label { display: block; font-weight: bold; margin-bottom: 8px; }
+    
+    .text-input { 
+      width: 96%; padding: 8px; margin-top: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; 
+    }
+
+    button {
+      background: #000; color: white; border: none; padding: 12px 24px; 
+      font-size: 16px; border-radius: 4px; cursor: pointer; display: block; width: 100%; margin-top: 20px;
+    }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    button:hover:not(:disabled) { background: #333; }
+    
+    #status { margin-top: 15px; text-align: center; font-weight: bold; min-height: 20px;}
+    .hint { font-size: 11px; color: #888; margin-top: 4px; }
+
+    /* Progress Bar Styles */
+    #progressContainer { display: none; margin-top: 20px; }
+    progress { width: 100%; height: 20px; border-radius: 10px; }
+    .time-labels { display: flex; justify-content: space-between; font-size: 12px; color: #555; margin-top: 5px; font-family: monospace; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+<h1>Tab Recorder Plus: Merger Studio</h1>
+  <p class="subtitle">Merge two recordings into a single comparison video.</p>
+        <div class="input-group">
+      <label>Left Video Source:</label>
+      <input type="file" id="video1Input" accept="video/*">
+      <input type="text" id="title1" class="text-input" placeholder="Enter Title (e.g., Environment: T1)">
+      <div class="hint">Supported placeholders: {{filename}}, {{fileDateTime}}</div>
+    </div>
+
+    <div class="input-group">
+      <label>Right Video Source:</label>
+      <input type="file" id="video2Input" accept="video/*">
+      <input type="text" id="title2" class="text-input" placeholder="Enter Title (e.g., Environment: T5)">
+      <div class="hint">Supported placeholders: {{filename}}, {{fileDateTime}}</div>
+    </div>
+
+    <button id="processBtn" disabled>Start Merge & Download</button>
+
+    <div id="progressContainer">
+      <progress id="progressBar" value="0" max="100"></progress>
+      <div class="time-labels">
+        <span id="currentTimeText">00:00</span>
+        <span id="totalTimeText">00:00</span>
+      </div>
+    </div>
+
+    <div id="status"></div>
+
+    <video id="vid1" playsinline style="display:none;" muted></video>
+    <video id="vid2" playsinline style="display:none;" muted></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+  </div>
+
+  <script src="merger.js"></script>
+</body>
+</html>

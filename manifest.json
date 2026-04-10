@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Tab Recorder Plus",
+  "version": "3.6",
+  "description": "Record browser tabs, annotate, and merge recordings.",
+  "permissions": ["activeTab", "scripting", "storage", "tabCapture", "offscreen", "downloads"],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "icons": { "128": "icon.png" },
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "Tab Recorder Plus" },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Alt+Shift+Q", "mac": "Alt+Shift+Q" },
+      "description": "Open Recorder Popup"
+    },
+    "stop-recording": {
+      "suggested_key": { "default": "Ctrl+Shift+S", "mac": "Command+Shift+S" },
+      "description": "Stop Recording and Save"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ]
+}

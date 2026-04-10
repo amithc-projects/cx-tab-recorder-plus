@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <style>
+      body { width: 240px; padding: 12px; font-family: 'Segoe UI', sans-serif; background: #fff; color: #333; }
+      .hidden { display: none !important; }
+      
+      /* --- SECTION 1: QUICK TOOLS --- */
+      .tool-grid { display: flex; gap: 8px; margin-bottom: 15px; }
+      .tool-btn { 
+        flex: 1; border: none; padding: 12px 5px; cursor: pointer; border-radius: 6px; 
+        font-weight: 600; font-size: 12px; color: white; display: flex; flex-direction: column; align-items: center; gap: 4px;
+      }
+      .tool-btn:hover { opacity: 0.9; }
+
+      #annotateBtn { background-color: #455A64; }
+      #screenshotBtn { background-color: #455A64; }
+      #clipboardBtn { background-color: #607D8B; }
+
+      /* --- SECTION 2: VIDEO RECORDER --- */
+      .recorder-box { 
+        border: 1px solid #e0e0e0; background: #fafafa; border-radius: 8px; padding: 10px;
+        margin-bottom: 10px;
+      }
+      .recorder-title { font-size: 11px; font-weight: bold; color: #888; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px; }
+
+      .option-row { display: flex; align-items: center; margin-bottom: 6px; font-size: 13px; cursor: pointer; }
+      input[type="checkbox"] { margin-right: 8px; cursor: pointer; }
+      select { padding: 2px; border-radius: 4px; border: 1px solid #ccc; font-size: 11px; margin-left: auto; }
+
+      #startBtn { width: 100%; border: none; background-color: #d32f2f; color: white; font-size: 14px; padding: 12px; border-radius: 6px; cursor: pointer; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 6px; }
+      #startBtn:hover { background-color: #b71c1c; }
+      #startBtn u { width:5px}
+
+      /* --- SECTION 3: UTILS --- */
+      #mergeBtn { width: 100%; border: none; background-color: #1976D2; color: white; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: 600; margin-top: 5px; }
+      #mergeBtn:hover { background-color: #1565C0; }
+
+      #stopBtn { width: 100%; border: none; background-color: #333; color: white; padding: 12px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+      
+      #helpBtn {
+        position: absolute; top: 8px; right: 8px;
+        background: #f0f0f0; color: #555; width: 20px; height: 20px; border-radius: 50%; 
+        font-size: 12px; padding: 0; display: flex; align-items: center; justify-content: center; border: none; cursor: pointer;
+      }
+      #helpBtn:hover { background: #ddd; color: #000; }
+
+      #status { margin-top: 10px; font-size: 11px; text-align: center; color: #666; }
+      .shortcut-hint { font-size: 10px; color: #999; margin-top: 4px; text-align: center; }
+      u { text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 2px; }
+    </style>
+  </head>
+  <body>
+    <button id="helpBtn" title="Help">?</button>
+
+    <div id="setupView">
+      <div style="font-size: 12px; font-weight: bold; margin-bottom: 6px;">Quick Tools</div>
+      <div class="tool-grid">
+        <button id="annotateBtn" class="tool-btn" title="Shortcut: A"><span>✏️<u>A</u>nnotate</span></button>
+        <button id="screenshotBtn" class="tool-btn" title="Shortcut: S"><span>💾<u>S</u>ave</span></button>
+        <button id="clipboardBtn" class="tool-btn" title="Shortcut: C"><span>📋<u>C</u>lip</span></button>
+      </div>
+
+      <div class="recorder-box">
+        <div class="recorder-title">Video Recorder</div>
+        
+        <label class="option-row"><input type="checkbox" id="showTimer" checked> Show Timer</label>
+        <label class="option-row"><input type="checkbox" id="recordScreen" checked> Record Screen</label>
+        <label class="option-row"><input type="checkbox" id="showClicks"> Show Clicks</label>
+        
+        <label class="option-row">
+          <span>Timer Pos:</span>
+          <select id="timerPosition">
+            <option value="bottom-center">Bottom Mid</option>
+            <option value="bottom-left">Bottom Left</option>
+            <option value="bottom-right">Bottom Right</option>
+            <option value="top-center">Top Mid</option>
+            <option value="top-left">Top Left</option>
+            <option value="top-right">Top Right</option>
+          </select>
+        </label>
+
+        <button id="startBtn" title="Shortcut: R">🔴 Start <u>R</u>ecording</button>
+      </div>
+
+      <button id="mergeBtn">🎞️ Open Video Merger</button>
+      <div class="shortcut-hint">Hotkeys: R, S, A, C</div>
+    </div>
+
+    <div id="recordingView" class="hidden">
+      <p style="text-align: center; font-weight: bold; color: #d32f2f; margin: 10px 0;">● Recording Active</p>
+      <button id="stopBtn">⏹ Stop & Save</button>
+      <div class="shortcut-hint">Shortcut: Ctrl+Shift+S</div>
+    </div>
+
+    <div id="status"></div>
+    <script src="popup.js"></script>
+  </body>
+</html>
