@@ -7,7 +7,6 @@
   "host_permissions": [
     "<all_urls>"
   ],
-  "icons": { "128": "icon.png" },
   "background": { "service_worker": "background.js" },
   "action": { "default_popup": "popup.html", "default_title": "Tab Recorder Plus" },
   "commands": {

@@ -24,7 +24,7 @@ var currentColor = '#FF0000';
 var isDrawing = false;
 var startX = 0;
 var startY = 0;
-var snapshot = null; 
+var currentShape = null; 
 
 // History & Crop
 var historyStack = [];

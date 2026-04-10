@@ -58,8 +58,6 @@ function enableAnnotationUI() {
   ctx.lineWidth = 4;
   ctx.strokeStyle = currentColor;
   
-  saveToHistory(); 
-
   annotationContainer.appendChild(canvas);
   createToolbar(); // Create and Attach Toolbar
   document.body.appendChild(annotationContainer); // Add to DOM
@@ -156,36 +154,69 @@ function getCursorForTool(tool) {
 }
 
 function clearCanvas() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
   document.querySelectorAll('.trp-text-input').forEach(el => el.remove());
   cropRect = null;
-  saveToHistory();
+  currentShape = null;
+  redoStack = [];
+  historyStack.push({ type: 'clear' });
+  if (historyStack.length > 50) historyStack.shift();
+  redrawCanvas();
+}
+
+function redrawCanvas(hideCrop = false) {
+  if (!ctx) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  for (const action of historyStack) {
+    if (action.type === 'shape') {
+      drawShape(action.shape);
+    } else if (action.type === 'clear') {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  }
+  
+  if (currentShape) {
+    drawShape(currentShape);
+  }
+  
+  if (cropRect && !hideCrop) {
+    drawCropRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
+  }
+}
+
+function drawShape(shape) {
+  ctx.beginPath();
+  ctx.setLineDash([]); 
+  ctx.strokeStyle = shape.color; 
+  ctx.lineWidth = 4;
+
+  if (shape.type === 'pen') {
+    if (!shape.path || shape.path.length === 0) return;
+    ctx.moveTo(shape.path[0].x, shape.path[0].y);
+    for (let i = 1; i < shape.path.length; i++) {
+      ctx.lineTo(shape.path[i].x, shape.path[i].y);
+    }
+    ctx.stroke();
+  } else if (shape.type === 'rect') {
+    ctx.strokeRect(shape.startX, shape.startY, shape.w, shape.h);
+  } else if (shape.type === 'ellipse') {
+    ctx.ellipse(shape.startX + shape.w/2, shape.startY + shape.h/2, Math.abs(shape.w/2), Math.abs(shape.h/2), 0, 0, 2*Math.PI);
+    ctx.stroke();
+  }
 }
 
 // --- HISTORY & UNDO ---
-function saveToHistory(textEl = null) {
-  redoStack = []; 
-  if (textEl) {
-    historyStack.push({ type: 'text', el: textEl });
-  } else {
-    const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    historyStack.push({ type: 'canvas', data: data });
-  }
-  if (historyStack.length > 50) historyStack.shift();
-}
-
 function performUndo() {
-  if (historyStack.length <= 1) return; 
-  if (cropRect) { cropRect = null; redrawCanvasWithoutCrop(); return; }
+  if (cropRect) { cropRect = null; redrawCanvas(); return; }
+  if (historyStack.length === 0) return; 
 
   const lastAction = historyStack.pop();
   redoStack.push(lastAction);
   
   if (lastAction.type === 'text') {
     lastAction.el.style.display = 'none';
-  } else if (lastAction.type === 'canvas') {
-    restoreCanvasState(findLastCanvasState());
   }
+  redrawCanvas();
 }
 
 function performRedo() {
@@ -194,25 +225,9 @@ function performRedo() {
   historyStack.push(actionToRedo);
 
   if (actionToRedo.type === 'text') actionToRedo.el.style.display = 'block';
-  else if (actionToRedo.type === 'canvas') restoreCanvasState(actionToRedo);
+  redrawCanvas();
 }
 
-function findLastCanvasState() {
-  for (let i = historyStack.length - 1; i >= 0; i--) {
-    if (historyStack[i].type === 'canvas') return historyStack[i];
-  }
-  return null;
-}
-
-function restoreCanvasState(state) {
-  if (!state) return;
-  ctx.putImageData(state.data, 0, 0);
-}
-
-function redrawCanvasWithoutCrop() {
-  const state = findLastCanvasState();
-  if (state) ctx.putImageData(state.data, 0, 0);
-}
 
 // --- DRAWING ENGINE ---
 function startDrawing(e) {
@@ -222,56 +237,51 @@ function startDrawing(e) {
   startY = e.offsetY;
   
   if (cropRect || currentTool === 'crop') {
-    cropRect = null; redrawCanvasWithoutCrop();
+    cropRect = null; redrawCanvas();
   }
 
-  ctx.beginPath();
-  if (currentTool === 'crop') {
-    ctx.setLineDash([6, 6]); ctx.strokeStyle = '#000000'; ctx.lineWidth = 2;
+  currentShape = {
+    type: currentTool,
+    color: currentColor,
+    startX: startX,
+    startY: startY,
+  };
+
+  if (currentTool === 'pen') {
+    currentShape.path = [{x: startX, y: startY}];
   } else {
-    ctx.setLineDash([]); ctx.strokeStyle = currentColor; ctx.lineWidth = 4;
+    currentShape.w = 0;
+    currentShape.h = 0;
   }
-  snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  if (currentTool === 'pen') ctx.moveTo(startX, startY);
 }
 
 function draw(e) {
   if (!isDrawing) return;
   
   if (currentTool === 'crop') {
-    ctx.putImageData(snapshot, 0, 0);
-    ctx.strokeRect(startX, startY, e.offsetX - startX, e.offsetY - startY);
-    return;
-  }
-
-  if (currentTool === 'pen') {
+    currentShape.w = e.offsetX - startX;
+    currentShape.h = e.offsetY - startY;
+  } else if (currentTool === 'pen') {
     if (e.shiftKey) {
-      ctx.putImageData(snapshot, 0, 0);
-      ctx.beginPath();
-      ctx.moveTo(startX, startY);
       const dx = Math.abs(e.offsetX - startX);
       const dy = Math.abs(e.offsetY - startY);
-      if (dx > dy) ctx.lineTo(e.offsetX, startY); else ctx.lineTo(startX, e.offsetY);
-      ctx.stroke();
+      const newX = dx > dy ? e.offsetX : startX;
+      const newY = dx > dy ? startY : e.offsetY;
+      currentShape.path = [{x: startX, y: startY}, {x: newX, y: newY}];
     } else {
-      ctx.lineTo(e.offsetX, e.offsetY); ctx.stroke();
+      currentShape.path.push({x: e.offsetX, y: e.offsetY});
     }
-  } 
-  else if (currentTool === 'rect' || currentTool === 'ellipse') {
-    ctx.putImageData(snapshot, 0, 0);
+  } else if (currentTool === 'rect' || currentTool === 'ellipse') {
     let w = e.offsetX - startX;
     let h = e.offsetY - startY;
     if (e.shiftKey) {
       const s = Math.min(Math.abs(w), Math.abs(h));
       w = w < 0 ? -s : s; h = h < 0 ? -s : s;
     }
-    ctx.beginPath();
-    if (currentTool === 'rect') ctx.strokeRect(startX, startY, w, h);
-    else {
-      ctx.ellipse(startX + w/2, startY + h/2, Math.abs(w/2), Math.abs(h/2), 0, 0, 2*Math.PI);
-      ctx.stroke();
-    }
+    currentShape.w = w;
+    currentShape.h = h;
   }
+  redrawCanvas();
 }
 
 function drawCropRect(x, y, w, h) {
@@ -291,12 +301,19 @@ function stopDrawing(e) {
       const h = e.offsetY - startY;
       if (Math.abs(w) > 5 && Math.abs(h) > 5) {
         cropRect = { x: startX, y: startY, w: w, h: h };
+        currentShape = null;
+        performScreenshotSequence(true);
       } else {
-        cropRect = null; redrawCanvasWithoutCrop();
+        cropRect = null; 
+        currentShape = null;
+        redrawCanvas();
       }
     } else {
-      ctx.beginPath();
-      saveToHistory();
+      redoStack = [];
+      historyStack.push({ type: 'shape', shape: currentShape });
+      if (historyStack.length > 50) historyStack.shift();
+      currentShape = null;
+      redrawCanvas();
     }
   }
 }
@@ -311,6 +328,10 @@ function handleCanvasClick(e) {
   input.innerText = '';
   annotationContainer.appendChild(input);
   setTimeout(() => input.focus(), 0);
-  saveToHistory(input);
+  
+  redoStack = [];
+  historyStack.push({ type: 'text', el: input });
+  if (historyStack.length > 50) historyStack.shift();
+  
   input.addEventListener('blur', () => { if (input.innerText.trim() === '') input.remove(); });
 }

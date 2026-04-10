@@ -17,6 +17,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   else if (message.type === "RECORDING_FINISHED") {
     downloadRecording(message.url);
   }
+  else if (message.action === "DOWNLOAD_FILE") {
+    chrome.downloads.download({
+      url: message.dataUrl,
+      filename: message.filename,
+      saveAs: false
+    }, (dl) => {
+        if (chrome.runtime.lastError) console.error("Download Error:", chrome.runtime.lastError.message);
+        sendResponse({ success: !chrome.runtime.lastError, downloadId: dl });
+    });
+    return true;
+  }
   // Case A: Save to File (Download)
   else if (message.action === "TAKE_SCREENSHOT") {
     takeScreenshot(true);
