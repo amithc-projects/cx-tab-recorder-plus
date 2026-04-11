@@ -339,7 +339,10 @@ async function generateFilename() {
 
 async function downloadImage(dataUrl) {
   const filename = await generateFilename();
-  chrome.runtime.sendMessage({ action: "DOWNLOAD_FILE", dataUrl: dataUrl, filename: filename });
+  // Send to background which will store the blob in the extension's IDB
+  // (content scripts use the page's IDB origin, not the extension's)
+  console.log('[TRP content] sending SAVE_SCREENSHOT, filename=', filename);
+  chrome.runtime.sendMessage({ action: "SAVE_SCREENSHOT", dataUrl, filename });
 }
 
 async function copyToClipboard(dataUrl) {
@@ -521,8 +524,7 @@ async function performFullPageCapture(intent) {
     await copyToClipboard(stitchedUrl);
   }
   if (intent === 'save' || intent === 'both') {
-    const filename = await generateFilename();
-    chrome.runtime.sendMessage({ action: "DOWNLOAD_FILE", dataUrl: stitchedUrl, filename: filename });
+    await downloadImage(stitchedUrl);
   }
 
   if (intent === 'copy') showToast("Copied Full Page! ");

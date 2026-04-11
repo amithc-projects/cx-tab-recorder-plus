@@ -131,6 +131,44 @@ async function getGrantedFSAHandle() {
   } catch (e) { console.warn('[TRP popup] getGrantedFSAHandle error:', e); return null; }
 }
 
+// Read/write blob directly against the extension-origin IDB Screenshots store.
+async function getScreenshotBlob(key) {
+  let db = await openDB();
+  return new Promise((r, j) => {
+    let tx = db.transaction('Screenshots', 'readonly');
+    let req = tx.objectStore('Screenshots').get(key);
+    req.onsuccess = () => r(req.result);
+    req.onerror = () => j(req.error);
+  });
+}
+async function deleteScreenshotBlob(key) {
+  let db = await openDB();
+  return new Promise((r, j) => {
+    let tx = db.transaction('Screenshots', 'readwrite');
+    tx.objectStore('Screenshots').delete(key);
+    tx.oncomplete = r;
+    tx.onerror = () => j(tx.error);
+  });
+}
+async function writeFSAFromBlob(handle, blob, filename) {
+  console.log('[TRP popup] writeFSAFromBlob handle=', handle.name, 'filename=', filename, 'size=', blob.size);
+  try {
+    let parts = filename.split('/');
+    const leaf = parts.pop();
+    let dir = handle;
+    for (const p of parts) dir = await dir.getDirectoryHandle(p, { create: true });
+    const fileHandle = await dir.getFileHandle(leaf, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    console.log('[TRP popup] writeFSAFromBlob SUCCESS');
+    return true;
+  } catch (err) {
+    console.warn('[TRP popup] writeFSAFromBlob FAILED:', err);
+    return false;
+  }
+}
+
 // Write a data URL directly to an FSA handle (permission must already be 'granted').
 async function writeFSA(handle, dataUrl, filename) {
   console.log('[TRP popup] writeFSA: handle=', handle.name, 'filename=', filename, 'dataUrl length=', dataUrl.length);
@@ -274,16 +312,53 @@ async function triggerAnnotateFromPopup() {
   }
 }
 
-// Full Tab Capture — grant FSA permission early, then close popup
+// Full Tab Capture — for save intent, keep popup alive so it can write via FSA directly.
+// FSA permission is per-document in Chrome; the popup is the only context with permission.
 async function triggerFullTabCapture(intent) {
   console.log('[TRP popup v2] triggerFullTabCapture intent=', intent);
   const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
-  if (tab) {
-    await ensureContentScript(tab.id);
-    await ensureOffscreenExists();          // offscreen must exist before we grant permission
-    const h = await getGrantedFSAHandle();  // permission propagates to existing offscreen
-    console.log('[TRP popup] fullTab: fsaHandle after grant=', h ? h.name : 'null');
-    chrome.tabs.sendMessage(tab.id, { action: "CAPTURE_FULL_PAGE", intent: intent });
+  if (!tab) return;
+
+  await ensureContentScript(tab.id);
+
+  const needsSave = (intent === 'save' || intent === 'both');
+  const fsaHandle = needsSave ? await getGrantedFSAHandle() : null;
+  console.log('[TRP popup] fullTab: fsaHandle=', fsaHandle ? fsaHandle.name : 'null');
+
+  if (needsSave && fsaHandle) {
+    // Keep popup alive — show capturing state so user knows not to close it
+    document.getElementById('setupView').classList.add('hidden');
+    document.getElementById('capturingView').classList.remove('hidden');
+
+    // Listen for background signalling that the blob is ready in IDB
+    chrome.runtime.onMessage.addListener(function onCaptureReady(msg, sender, sendResponse) {
+      if (msg.type !== 'FULL_PAGE_CAPTURE_READY') return;
+      chrome.runtime.onMessage.removeListener(onCaptureReady);
+      // Tell background synchronously that popup is handling it (prevents fallback)
+      sendResponse({ handled: true });
+
+      (async () => {
+        const blob = await getScreenshotBlob(msg.key).catch(() => null);
+        if (blob) {
+          const ok = await writeFSAFromBlob(fsaHandle, blob, msg.filename);
+          if (ok) {
+            await deleteScreenshotBlob(msg.key).catch(() => {});
+            chrome.tabs.sendMessage(tab.id, { action: "SHOW_TOAST", message: "Saved Folder! " }).catch(() => {});
+          } else {
+            // Blob stays in IDB; tell background to fall back to Downloads
+            chrome.runtime.sendMessage({ action: 'SAVE_SCREENSHOT_FALLBACK', key: msg.key, filename: msg.filename, tabId: tab.id });
+          }
+        }
+        window.close();
+      })();
+    });
+
+    chrome.tabs.sendMessage(tab.id, { action: "CAPTURE_FULL_PAGE", intent });
+    // Do NOT close popup — it stays alive until onCaptureReady fires
+  } else {
+    // Copy-only or no FSA handle: close popup immediately, offscreen handles any save
+    if (needsSave) await ensureOffscreenExists();
+    chrome.tabs.sendMessage(tab.id, { action: "CAPTURE_FULL_PAGE", intent });
     window.close();
   }
 }
@@ -416,8 +491,12 @@ const DB_NAME = "TabRecorderDB";
 const STORE_NAME = "Handles";
 function openDB() {
   return new Promise((r, j) => {
-    let req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = e => req.result.createObjectStore(STORE_NAME);
+    let req = indexedDB.open(DB_NAME, 2);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME);
+      if (!db.objectStoreNames.contains('Screenshots')) db.createObjectStore('Screenshots');
+    };
     req.onsuccess = () => r(req.result);
     req.onerror = () => j(req.error);
   });

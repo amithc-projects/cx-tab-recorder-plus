@@ -3,6 +3,80 @@
 let recordingTabId = null;
 let isRecording = false;
 
+// Extension-origin IDB helpers (shared with offscreen document, NOT with content scripts)
+async function openExtDB() {
+  return new Promise((r, j) => {
+    const req = indexedDB.open('TabRecorderDB', 2);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('Handles')) db.createObjectStore('Handles');
+      if (!db.objectStoreNames.contains('Screenshots')) db.createObjectStore('Screenshots');
+    };
+    req.onsuccess = () => r(req.result);
+    req.onerror = () => j(req.error);
+  });
+}
+async function storeBlobInExtDB(key, blob) {
+  const db = await openExtDB();
+  return new Promise((r, j) => {
+    const tx = db.transaction('Screenshots', 'readwrite');
+    tx.objectStore('Screenshots').put(blob, key);
+    tx.oncomplete = () => { db.close(); r(); };
+    tx.onerror = () => { db.close(); j(tx.error); };
+  });
+}
+async function deleteFromExtDB(key) {
+  const db = await openExtDB();
+  return new Promise((r, j) => {
+    const tx = db.transaction('Screenshots', 'readwrite');
+    tx.objectStore('Screenshots').delete(key);
+    tx.oncomplete = () => { db.close(); r(); };
+    tx.onerror = () => { db.close(); j(tx.error); };
+  });
+}
+async function getHandleFromExtDB() {
+  const db = await openExtDB();
+  return new Promise((r, j) => {
+    const tx = db.transaction('Handles', 'readonly');
+    const req = tx.objectStore('Handles').get('saveDirectory');
+    req.onsuccess = () => { db.close(); r(req.result); };
+    req.onerror = () => { db.close(); j(req.error); };
+  });
+}
+
+async function ensureOffscreenDoc() {
+  const existingContexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
+  if (existingContexts.length === 0) {
+    await chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: ['USER_MEDIA'], justification: 'FSA DOM Handle' });
+    await new Promise(r => setTimeout(r, 150));
+  }
+}
+
+// Attempt FSA write directly from the background service worker.
+// Background runs in the extension origin, so if permission was granted in the popup
+// it should be visible here via queryPermission without needing user activation.
+async function tryFSAWriteFromBackground(blob, filename) {
+  const handle = await getHandleFromExtDB().catch(() => null);
+  if (!handle) { console.log('[TRP bg] tryFSA: no handle'); return false; }
+
+  const permState = await handle.queryPermission({ mode: 'readwrite' });
+  console.log('[TRP bg] tryFSA: queryPermission=', permState);
+  if (permState !== 'granted') return false;
+
+  let parts = filename.split('/');
+  let leaf = parts.pop();
+  let dir = handle;
+  for (const p of parts) {
+    dir = await dir.getDirectoryHandle(p, { create: true });
+  }
+  const fileHandle = await dir.getFileHandle(leaf, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+  console.log('[TRP bg] tryFSA: write SUCCESS');
+  return true;
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "START_RECORDING") {
     handleStartRecording(sender.tab ? sender.tab.id : message.tabId, message);
@@ -23,47 +97,69 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   else if (message.type === "RECORDING_FINISHED") {
     downloadRecording(message.url);
   }
+  else if (message.action === "SAVE_SCREENSHOT") {
+    (async () => {
+      console.log('[TRP bg] SAVE_SCREENSHOT received, filename=', message.filename);
+      const tabId = sender.tab ? sender.tab.id : null;
+      const key = 'screenshot-' + Date.now();
+
+      // Store blob in extension-origin IDB
+      let blob;
+      try {
+        blob = await (await fetch(message.dataUrl)).blob();
+        await storeBlobInExtDB(key, blob);
+        console.log('[TRP bg] stored blob in ext IDB, key=', key, 'size=', blob.size);
+      } catch (e) {
+        console.warn('[TRP bg] blob fetch/store failed, falling back to direct offscreen path:', e);
+        await ensureOffscreenDoc();
+        chrome.runtime.sendMessage({ type: 'PROCESS_FSA_DOWNLOAD', dataUrl: message.dataUrl, filename: message.filename, tabId });
+        sendResponse({ success: true, pending: true });
+        return;
+      }
+
+      // Signal the popup (if still alive) — it holds FSA permission and will write directly.
+      // FSA permission is per-document in Chrome; popup is the only context that has it.
+      console.log('[TRP bg] sending FULL_PAGE_CAPTURE_READY, key=', key);
+      chrome.runtime.sendMessage({ type: 'FULL_PAGE_CAPTURE_READY', key, filename: message.filename, tabId }, (response) => {
+        const _err = chrome.runtime.lastError; // consume potential "no receiver" error
+        if (_err || !response?.handled) {
+          console.log('[TRP bg] popup not alive, falling back to offscreen/Downloads');
+          (async () => {
+            await ensureOffscreenDoc();
+            chrome.runtime.sendMessage({ type: 'PROCESS_SCREENSHOT_FROM_IDB', key, filename: message.filename, tabId });
+          })();
+        } else {
+          console.log('[TRP bg] popup acknowledged — it will handle the FSA write');
+        }
+      });
+
+      sendResponse({ success: true, pending: true });
+    })();
+    return true;
+  }
+  else if (message.action === "SAVE_SCREENSHOT_FALLBACK") {
+    // Popup's FSA write failed — route blob from IDB through offscreen → Downloads fallback
+    (async () => {
+      console.log('[TRP bg] SAVE_SCREENSHOT_FALLBACK key=', message.key);
+      await ensureOffscreenDoc();
+      chrome.runtime.sendMessage({ type: 'PROCESS_SCREENSHOT_FROM_IDB', key: message.key, filename: message.filename, tabId: message.tabId });
+    })();
+  }
   else if (message.action === "DOWNLOAD_FILE") {
     (async () => {
       console.log('[TRP bg] DOWNLOAD_FILE received, filename=', message.filename);
-      // 1. Ensure Offscreen DOM exists (so it has FSA access)
-      const existingContexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
-      console.log('[TRP bg] existing offscreen contexts:', existingContexts.length);
-      if (existingContexts.length === 0) {
-        await chrome.offscreen.createDocument({
-          url: 'offscreen.html',
-          reasons: ['USER_MEDIA'],
-          justification: 'FSA DOM Handle'
-        });
-        await new Promise(r => setTimeout(r, 150));
-      }
-
-      let tabId = sender.tab ? sender.tab.id : null;
-      console.log('[TRP bg] sending PROCESS_FSA_DOWNLOAD to offscreen, tabId=', tabId);
-      chrome.runtime.sendMessage({
-         type: 'PROCESS_FSA_DOWNLOAD',
-         dataUrl: message.dataUrl,
-         filename: message.filename,
-         tabId: tabId
-      });
+      await ensureOffscreenDoc();
+      const tabId = sender.tab ? sender.tab.id : null;
+      chrome.runtime.sendMessage({ type: 'PROCESS_FSA_DOWNLOAD', dataUrl: message.dataUrl, filename: message.filename, tabId });
       sendResponse({ success: true, pending: true });
     })();
     return true;
   }
   else if (message.action === "ENSURE_OFFSCREEN") {
-    // Popup calls this before granting FSA permission so the existing offscreen
-    // receives the permission update (newly-created contexts don't inherit it).
     (async () => {
       const existingContexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
       console.log('[TRP bg] ENSURE_OFFSCREEN: existing=', existingContexts.length);
-      if (existingContexts.length === 0) {
-        await chrome.offscreen.createDocument({
-          url: 'offscreen.html',
-          reasons: ['USER_MEDIA'],
-          justification: 'FSA DOM Handle'
-        });
-        await new Promise(r => setTimeout(r, 150));
-      }
+      await ensureOffscreenDoc();
       sendResponse({ ok: true });
     })();
     return true;
@@ -86,11 +182,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       
       // Fallback
-      chrome.downloads.download({
-        url: message.dataUrl,
-        filename: message.filename,
-        saveAs: false
-      });
+      if (message.dataUrl) {
+        chrome.downloads.download({
+          url: message.dataUrl,
+          filename: message.filename,
+          saveAs: false
+        });
+      }
   }
   // Case A: Save to File (Download)
   else if (message.action === "TAKE_SCREENSHOT") {
