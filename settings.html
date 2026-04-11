@@ -93,9 +93,14 @@
 
         <div class="field-label" style="margin-bottom: 6px;">Save File Format</div>
         <div class="tokens">
-          Available tokens: <code>{{timestamp}}</code> <code>{{domain}}</code> <code>{{tab.title}}</code> <code>{{tab.url}}</code>
+          <strong style="color:#9CA3AF;">URL &amp; page:</strong>
+          <code>{{domain}}</code> <code>{{path}}</code> <code>{{path:1}}</code> <code>{{path:2}}</code> <code>{{hash}}</code> <code>{{tab.title}}</code> <code>{{tab.url}}</code><br>
+          <strong style="color:#9CA3AF;">Date &amp; time:</strong>
+          <code>{{timestamp}}</code> <code>{{year}}</code> <code>{{month}}</code> <code>{{day}}</code> <code>{{hour}}</code> <code>{{minute}}</code> <code>{{second}}</code><br>
+          <strong style="color:#9CA3AF;">Page content</strong> <span style="color:#6B7280;">(full page &amp; area captures):</span><br>
+          <code>{{dom:h1}}</code> <code>{{meta:article:section}}</code> <code>{{cookie:name}}</code> <code>{{localStorage:key}}</code>
         </div>
-        <input type="text" id="saveFileFormat" class="mono full-width" placeholder="{{domain}}/{{timestamp}}-{{tab.title}}.png">
+        <input type="text" id="saveFileFormat" class="mono full-width" placeholder="{{domain}}/{{path}}/{{timestamp}}-{{tab.title}}.png">
       </div>
     </div>
 

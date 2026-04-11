@@ -10,16 +10,17 @@ This document outlines the planned improvements and architectural enhancements f
 
 ## Phase 2: Core Feature Enhancements
 
-- **4. Audio Recording Support**: Expand the `offscreen.js` stream capture to include microphone voiceovers and system/tab audio recording.
-- **5. Pause & Resume Recording**: Provide "Pause/Resume" controls to the recording system, allowing users to neatly control longer recording sessions without stopping entirely.
-- **6. MP4/WASM Support**: Integrate `ffmpeg.wasm` client-side to allow conversion of browser native `.webm` videos into highly-compatible `.mp4` format directly before saving.
+- **4. Capture All Tabs**: Add a "Capture All Tabs" button that screenshots every open tab in sequence using programmatic tab cycling (`chrome.tabs.update({ active: true })` → `captureVisibleTab` → repeat). Saves one file per tab using the existing filename format and FSA pipeline. Progress shown in the popup ("Tab N of M"). Known trade-off: tabs visibly switch during capture (~1–2s each).
+- **5. Audio Recording Support**: Expand the `offscreen.js` stream capture to include microphone voiceovers and system/tab audio recording.
+- **6. Pause & Resume Recording**: Provide "Pause/Resume" controls to the recording system, allowing users to neatly control longer recording sessions without stopping entirely.
+- **7. MP4/WASM Support**: Integrate `ffmpeg.wasm` client-side to allow conversion of browser native `.webm` videos into highly-compatible `.mp4` format directly before saving.
 
 ## Phase 3: Annotation & Tooling UX
 
-- **7. Advanced Drawing Tools**: Introduce Arrow and Highlighter tools to the annotation bar for better visibility during presentations.
-- **8. Drag-to-Move Annotations**: Enhance the existing text-insertion tool to allow dragging and repositioning of text after it has been typed.
+- **8. Advanced Drawing Tools**: Introduce Arrow and Highlighter tools to the annotation bar for better visibility during presentations.
+- **9. Drag-to-Move Annotations**: Enhance the existing text-insertion tool to allow dragging and repositioning of text after it has been typed.
 
 ## Phase 4: Video Merger Upgrades
 
-- **9. Sequential Stitching**: Add an option to the video merger to stitch videos sequentially (Video 1, then Video 2) instead of only playing them simultaneously side-by-side.
-- **10. Trim/Offset Controls**: Implement simple UI sliders on the Video Merger page to let users trim leading/trailing seconds prior to processing the mix.
+- **10. Sequential Stitching**: Add an option to the video merger to stitch videos sequentially (Video 1, then Video 2) instead of only playing them simultaneously side-by-side.
+- **11. Trim/Offset Controls**: Implement simple UI sliders on the Video Merger page to let users trim leading/trailing seconds prior to processing the mix.

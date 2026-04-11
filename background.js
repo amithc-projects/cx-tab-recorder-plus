@@ -3,6 +3,22 @@
 let recordingTabId = null;
 let isRecording = false;
 
+// Context menu — single item that opens the popup as if the toolbar icon was clicked.
+// Created on install; context menus persist in Chrome across service worker restarts.
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: 'trp-open',
+    title: 'Tab Recorder Plus',
+    contexts: ['all']
+  });
+});
+
+chrome.contextMenus.onClicked.addListener((info) => {
+  if (info.menuItemId === 'trp-open') {
+    chrome.action.openPopup();
+  }
+});
+
 // Extension-origin IDB helpers (shared with offscreen document, NOT with content scripts)
 async function openExtDB() {
   return new Promise((r, j) => {

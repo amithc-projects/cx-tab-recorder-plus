@@ -422,51 +422,83 @@ async function getActionIntent(e) {
   });
 }
 
-// Filename Parser Helper
+// Filename generation — delegates to content script so DOM-based tokens can be resolved.
+// Falls back to URL/date-only resolution if the content script is unavailable.
 async function generateFilename(tab) {
+  if (tab) {
+    try {
+      const response = await new Promise((resolve, reject) => {
+        chrome.tabs.sendMessage(tab.id, { action: 'RESOLVE_FILENAME' }, (r) => {
+          if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
+          else resolve(r);
+        });
+      });
+      if (response && response.filename) return response.filename;
+    } catch (e) {
+      // Content script unavailable (e.g. chrome:// page) — fall through
+    }
+  }
+  return resolveBasicFilename(tab);
+}
+
+// URL/date token resolution only — used as fallback when content script is not available.
+// DOM-based tokens ({{dom:}}, {{meta:}}, {{cookie:}}, {{localStorage:}}) resolve to empty string.
+function resolveBasicFilename(tab) {
   return new Promise(resolve => {
     chrome.storage.local.get(['saveFileFormat'], (result) => {
       let format = result.saveFileFormat || '{{domain}}/{{timestamp}}-{{tab.title}}.png';
-      
-      const d = new Date();
-      const timestamp = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}${String(d.getSeconds()).padStart(2,'0')}`;
-      
-      let url = (tab && tab.url ? tab.url : "unknown_url").substring(0, 50);
-      let title = (tab && tab.title ? tab.title : "unknown_title").substring(0, 50);
-      let domain = "unknown_domain";
-      try { domain = new URL(tab.url).hostname; } catch(e) {}
-
-      // Sanitize specifically, removing special chars to avoid corrupt paths
-      // Note: We MUST ALLOW forward-slashes un-escaped to enable local directory creation
-      const sanitize = (str) => str.replace(/[^a-zA-Z0-9.\-_]/g, '_').substring(0, 80);
-      
-      format = format.replace(/{{\s*timestamp\s*}}/g, sanitize(timestamp));
-      format = format.replace(/{{\s*domain\s*}}/g, sanitize(domain));
-      format = format.replace(/{{\s*tab\.title\s*}}/g, sanitize(title));
-      format = format.replace(/{{\s*tab\.url\s*}}/g, sanitize(url));
-      
-      // Clean up leading slashes which crash chrome.downloads
-      format = format.replace(/^\/+/, '');
-      
-      if (!format.toLowerCase().endsWith('.png')) format += '.png';
-      
-      resolve(format);
+      let resolved = resolveTokens(format, tab);
+      resolved = resolved.replace(/\/+/g, '/').replace(/^\/+/, '');
+      if (!resolved.toLowerCase().endsWith('.png')) resolved += '.png';
+      resolve(resolved);
     });
   });
 }
 
+// Resolves URL and date tokens. Used for captions/watermarks in popup context,
+// and as a fallback for filenames when the content script is unreachable.
+// DOM-based tokens are not resolvable here — they silently resolve to empty string.
 function resolveTokens(str, tab) {
+  if (!str) return str;
   const d = new Date();
-  const timestamp = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}${String(d.getSeconds()).padStart(2,'0')}`;
-  let url = tab && tab.url ? tab.url : "unknown";
-  let title = tab && tab.title ? tab.title : "Screenshot";
-  let domain = "unknown";
-  try { domain = new URL(url).hostname; } catch(e) {}
-  
-  let res = str.replace(/{{\s*timestamp\s*}}/g, timestamp);
-  res = res.replace(/{{\s*domain\s*}}/g, domain);
-  res = res.replace(/{{\s*tab\.title\s*}}/g, title);
-  res = res.replace(/{{\s*tab\.url\s*}}/g, url);
+  const pad = (n) => String(n).padStart(2, '0');
+  const sanitize = (s) => String(s).replace(/[^a-zA-Z0-9.\-_]/g, '_').substring(0, 80);
+
+  const year      = String(d.getFullYear());
+  const month     = pad(d.getMonth() + 1);
+  const day       = pad(d.getDate());
+  const hour      = pad(d.getHours());
+  const minute    = pad(d.getMinutes());
+  const second    = pad(d.getSeconds());
+  const timestamp = `${year}${month}${day}_${hour}${minute}${second}`;
+
+  const url    = tab && tab.url   ? tab.url   : 'unknown';
+  const title  = tab && tab.title ? tab.title : 'Screenshot';
+  let domain = 'unknown', path = '', hash = '';
+  try {
+    const u = new URL(url);
+    domain = u.hostname;
+    const pathParts = u.pathname.split('/').filter(Boolean);
+    path   = pathParts.map(sanitize).join('/');
+    hash   = sanitize((u.hash || '').replace(/^#/, ''));
+  } catch (e) {}
+
+  let res = str;
+  res = res.replace(/{{\s*timestamp\s*}}/g, timestamp);
+  res = res.replace(/{{\s*year\s*}}/g,      year);
+  res = res.replace(/{{\s*month\s*}}/g,     month);
+  res = res.replace(/{{\s*day\s*}}/g,       day);
+  res = res.replace(/{{\s*hour\s*}}/g,      hour);
+  res = res.replace(/{{\s*minute\s*}}/g,    minute);
+  res = res.replace(/{{\s*second\s*}}/g,    second);
+  res = res.replace(/{{\s*domain\s*}}/g,    sanitize(domain));
+  res = res.replace(/{{\s*path\s*}}/g,         path);
+  res = res.replace(/{{\s*path:(\d+)\s*}}/g,  (_, n) => sanitize(pathParts[parseInt(n, 10) - 1] || ''));
+  res = res.replace(/{{\s*hash\s*}}/g,      hash);
+  res = res.replace(/{{\s*tab\.title\s*}}/g, sanitize(title));
+  res = res.replace(/{{\s*tab\.url\s*}}/g,   sanitize(url.substring(0, 80)));
+  // DOM-based tokens not available in popup context — resolve to empty string
+  res = res.replace(/{{\s*(?:dom|meta|cookie|localStorage):[^}]+\s*}}/g, '');
   return res;
 }
 

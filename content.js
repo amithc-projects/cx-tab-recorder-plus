@@ -105,6 +105,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   else if (request.action === "CAPTURE_FULL_PAGE") performFullPageCapture(request.intent);
   else if (request.action === "TRIGGER_CLIPBOARD") performScreenshotSequence(true);
   
+  // --- FILENAME RESOLUTION ---
+  // Popup delegates filename generation here so DOM-based tokens can be resolved.
+  else if (request.action === "RESOLVE_FILENAME") {
+    generateFilename().then(filename => sendResponse({ filename }));
+    return true; // async response
+  }
+
   // --- POPUP CROP SUPPORT ---
   // The popup asks for the crop area before it captures the screen.
   // Only return cropRect if the annotation toolbar is currently active — a stale cropRect
@@ -239,17 +246,84 @@ function cropImage(dataUrl, rect) {
   });
 }
 
+// Sanitize a single path segment — strips unsafe chars but does NOT touch slashes.
+const _sanitizeSeg = (s) => String(s).replace(/[^a-zA-Z0-9.\-_]/g, '_').substring(0, 80);
+
+// Resolve all template tokens against the current page.
+// Handles: date/time, URL parts, DOM queries, meta tags, cookies, localStorage.
 function resolveTokens(str) {
+  if (!str) return str;
   const d = new Date();
-  const timestamp = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}${String(d.getSeconds()).padStart(2,'0')}`;
-  let url = window.location.href;
-  let title = document.title;
-  let domain = window.location.hostname;
-  
-  let res = str.replace(/{{\s*timestamp\s*}}/g, timestamp);
-  res = res.replace(/{{\s*domain\s*}}/g, domain);
-  res = res.replace(/{{\s*tab\.title\s*}}/g, title);
-  res = res.replace(/{{\s*tab\.url\s*}}/g, url);
+  const pad = (n) => String(n).padStart(2, '0');
+
+  // Date/time values
+  const year   = String(d.getFullYear());
+  const month  = pad(d.getMonth() + 1);
+  const day    = pad(d.getDate());
+  const hour   = pad(d.getHours());
+  const minute = pad(d.getMinutes());
+  const second = pad(d.getSeconds());
+  const timestamp = `${year}${month}${day}_${hour}${minute}${second}`;
+
+  // URL values
+  const domain = window.location.hostname;
+  // path: each segment sanitized individually, slashes preserved for subdirectory creation
+  const pathParts = window.location.pathname.split('/').filter(Boolean);
+  const path = pathParts.map(_sanitizeSeg).join('/');
+  // hash: strip leading # then sanitize
+  const hash = _sanitizeSeg((window.location.hash || '').replace(/^#/, ''));
+
+  let res = str;
+
+  // Simple substitutions
+  res = res.replace(/{{\s*timestamp\s*}}/g, timestamp);
+  res = res.replace(/{{\s*year\s*}}/g,      year);
+  res = res.replace(/{{\s*month\s*}}/g,     month);
+  res = res.replace(/{{\s*day\s*}}/g,       day);
+  res = res.replace(/{{\s*hour\s*}}/g,      hour);
+  res = res.replace(/{{\s*minute\s*}}/g,    minute);
+  res = res.replace(/{{\s*second\s*}}/g,    second);
+  res = res.replace(/{{\s*domain\s*}}/g,    _sanitizeSeg(domain));
+  res = res.replace(/{{\s*path\s*}}/g,         path);
+  res = res.replace(/{{\s*path:(\d+)\s*}}/g,  (_, n) => _sanitizeSeg(pathParts[parseInt(n, 10) - 1] || ''));
+  res = res.replace(/{{\s*hash\s*}}/g,      hash);
+  res = res.replace(/{{\s*tab\.title\s*}}/g, _sanitizeSeg(document.title));
+  res = res.replace(/{{\s*tab\.url\s*}}/g,   _sanitizeSeg(window.location.href.substring(0, 80)));
+
+  // {{dom:css-selector}} → textContent of first matching element
+  res = res.replace(/{{\s*dom:([^}]+?)\s*}}/g, (_, selector) => {
+    try {
+      const el = document.querySelector(selector.trim());
+      return _sanitizeSeg((el?.textContent || '').trim());
+    } catch (e) { return ''; }
+  });
+
+  // {{meta:property-or-name}} → content attribute of matching <meta> tag
+  // Matches both property="..." and name="..." attributes
+  res = res.replace(/{{\s*meta:([^}]+?)\s*}}/g, (_, prop) => {
+    prop = prop.trim();
+    try {
+      const el = document.querySelector(`meta[property="${prop}"], meta[name="${prop}"]`);
+      return _sanitizeSeg((el?.getAttribute('content') || '').trim());
+    } catch (e) { return ''; }
+  });
+
+  // {{cookie:name}} → decoded cookie value
+  res = res.replace(/{{\s*cookie:([^}]+?)\s*}}/g, (_, name) => {
+    name = name.trim();
+    try {
+      const pair = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith(name + '='));
+      return _sanitizeSeg(pair ? decodeURIComponent(pair.slice(name.length + 1)) : '');
+    } catch (e) { return ''; }
+  });
+
+  // {{localStorage:key}} → localStorage value
+  res = res.replace(/{{\s*localStorage:([^}]+?)\s*}}/g, (_, key) => {
+    try {
+      return _sanitizeSeg(localStorage.getItem(key.trim()) || '');
+    } catch (e) { return ''; }
+  });
+
   return res;
 }
 
@@ -314,26 +388,11 @@ async function generateFilename() {
   return new Promise(resolve => {
     chrome.storage.local.get(['saveFileFormat'], (result) => {
       let format = result.saveFileFormat || '{{domain}}/{{timestamp}}-{{tab.title}}.png';
-      
-      const d = new Date();
-      const timestamp = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}${String(d.getSeconds()).padStart(2,'0')}`;
-      
-      let url = window.location.href.substring(0, 50);
-      let title = document.title.substring(0, 50);
-      let domain = window.location.hostname;
-
-      const sanitize = (str) => str.replace(/[^a-zA-Z0-9.\-_]/g, '_').substring(0, 80);
-      
-      format = format.replace(/{{\s*timestamp\s*}}/g, sanitize(timestamp));
-      format = format.replace(/{{\s*domain\s*}}/g, sanitize(domain));
-      format = format.replace(/{{\s*tab\.title\s*}}/g, sanitize(title));
-      format = format.replace(/{{\s*tab\.url\s*}}/g, sanitize(url));
-      
-      format = format.replace(/^\/+/, '');
-      
-      if (!format.toLowerCase().endsWith('.png')) format += '.png';
-      
-      resolve(format);
+      let resolved = resolveTokens(format);
+      // Collapse multiple slashes; strip any leading slash (crashes chrome.downloads)
+      resolved = resolved.replace(/\/+/g, '/').replace(/^\/+/, '');
+      if (!resolved.toLowerCase().endsWith('.png')) resolved += '.png';
+      resolve(resolved);
     });
   });
 }
