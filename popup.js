@@ -64,8 +64,14 @@ document.addEventListener('keydown', (e) => {
   
   // Try to cleanly click the visible buttons based on shortcuts
   try {
-    if (key === 'r' && !setupView.classList.contains('hidden')) document.getElementById('btnRecordScreen').click();
-    
+    // R: Capture Region (capture tab) or Start Recording (record tab)
+    if (key === 'r') {
+      if (viewCapture && viewCapture.classList.contains('active')) {
+        document.getElementById('captureRegionBtn').dispatchEvent(new MouseEvent('click', { shiftKey: e.shiftKey }));
+      } else {
+        document.getElementById('btnRecordScreen').click();
+      }
+    }
     // Capture Entire Page (E)
     if (key === 'e') {
       const btn = document.getElementById('screenshotBtn');
@@ -73,7 +79,7 @@ document.addEventListener('keydown', (e) => {
     }
     // Capture Visible (V)
     if (key === 'v') document.getElementById('clipboardBtn').dispatchEvent(new MouseEvent('click', { shiftKey: e.shiftKey }));
-    // Capture Area (A)
+    // Annotate (A)
     if (key === 'a') document.getElementById('annotateBtn').click();
   } catch(e) {}
 });
@@ -284,16 +290,30 @@ async function ensureOffscreenExists() {
   });
 }
 
-// Annotation — grant FSA permission early, then close popup
+// Capture Region — grant FSA permission early, open annotation toolbar with crop tool, close popup
 async function triggerAnnotateFromPopup() {
-  console.log('[TRP popup v2] triggerAnnotateFromPopup');
+  console.log('[TRP popup v2] triggerAnnotateFromPopup (Capture Region)');
   const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
   if (tab) {
     await ensureContentScript(tab.id);
     await ensureOffscreenExists();          // offscreen must exist before we grant permission
     const h = await getGrantedFSAHandle();  // permission propagates to existing offscreen
-    console.log('[TRP popup] annotate: fsaHandle after grant=', h ? h.name : 'null');
+    console.log('[TRP popup] captureRegion: fsaHandle after grant=', h ? h.name : 'null');
     chrome.tabs.sendMessage(tab.id, { action: "START_CROP_MODE" });
+    window.close();
+  }
+}
+
+// Annotate — open annotation toolbar with drawing tool active (independent of any capture)
+async function triggerAnnotateModeFromPopup() {
+  console.log('[TRP popup v2] triggerAnnotateModeFromPopup');
+  const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
+  if (tab) {
+    await ensureContentScript(tab.id);
+    await ensureOffscreenExists();          // offscreen must exist before we grant permission
+    const h = await getGrantedFSAHandle();  // grant now so subsequent captures can save to folder
+    console.log('[TRP popup] annotate: fsaHandle after grant=', h ? h.name : 'null');
+    chrome.tabs.sendMessage(tab.id, { action: "START_ANNOTATION_MODE" });
     window.close();
   }
 }
@@ -593,8 +613,11 @@ async function getHandle() {
 }
 
 // Attach Action Listeners
+if (document.getElementById('captureRegionBtn')) {
+  document.getElementById('captureRegionBtn').addEventListener('click', triggerAnnotateFromPopup);
+}
 if (document.getElementById('annotateBtn')) {
-  document.getElementById('annotateBtn').addEventListener('click', triggerAnnotateFromPopup);
+  document.getElementById('annotateBtn').addEventListener('click', triggerAnnotateModeFromPopup);
 }
 if (document.getElementById('screenshotBtn')) {
   document.getElementById('screenshotBtn').addEventListener('click', async (e) => triggerFullTabCapture(await getActionIntent(e)));

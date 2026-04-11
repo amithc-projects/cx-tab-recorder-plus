@@ -99,6 +99,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     toggleAnnotationMode(true);
     setTool('crop');
   }
+  else if (request.action === "START_ANNOTATION_MODE") {
+    // Open annotation toolbar with drawing tool active (independent of capture region).
+    // Any annotations drawn here will be composited into subsequent Visible or Region captures.
+    toggleAnnotationMode(true);
+    setTool('rect');
+  }
   
   // Toolbar/Keyboard Actions
   else if (request.action === "TRIGGER_SCREENSHOT") performScreenshotSequence(false);

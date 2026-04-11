@@ -230,6 +230,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.commands.onCommand.addListener((command) => {
   if (command === "stop-recording" && isRecording) {
     handleStopRecording();
+  } else if (command === "annotate") {
+    // Global shortcut (Alt+Shift+A) — open annotation toolbar on the active tab
+    chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      if (!tab) return;
+      chrome.tabs.sendMessage(tab.id, { action: 'PING' }, (response) => {
+        const needsInject = chrome.runtime.lastError || !response;
+        const send = () => chrome.tabs.sendMessage(tab.id, { action: 'START_ANNOTATION_MODE' });
+        if (needsInject) {
+          chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] },
+            () => { chrome.runtime.lastError; setTimeout(send, 80); });
+        } else {
+          send();
+        }
+      });
+    });
   }
 });
 
