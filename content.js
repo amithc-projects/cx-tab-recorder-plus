@@ -18,6 +18,7 @@ let isAnnotationMode = false;
 let canvas, ctx;
 let annotationContainer;
 let currentTool = 'rect';
+let toolbarMode = 'annotate'; // 'capture' | 'annotate'
 let currentColor = '#FF0000';
 let isDrawing = false;
 let startX = 0;
@@ -96,14 +97,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   else if (request.action === "FORCE_STOP_UI") fullStopUIOnly();
   else if (request.action === "TOGGLE_ANNOTATION") toggleAnnotationMode(true);
   else if (request.action === "START_CROP_MODE") {
+    toolbarMode = 'capture';
     toggleAnnotationMode(true);
     setTool('crop');
+    applyToolbarMode();
   }
   else if (request.action === "START_ANNOTATION_MODE") {
     // Open annotation toolbar with drawing tool active (independent of capture region).
     // Any annotations drawn here will be composited into subsequent Visible or Region captures.
+    toolbarMode = 'annotate';
     toggleAnnotationMode(true);
     setTool('rect');
+    applyToolbarMode();
   }
   
   // Toolbar/Keyboard Actions
@@ -145,7 +150,6 @@ function performScreenshotSequence(toClipboard) {
   setTimeout(async () => {
     const response = await captureWithRetry();
     if (!response) {
-      showToast('⚠️ Capture failed — please try again.');
       restoreAfterCapture();
       return;
     }
@@ -162,7 +166,7 @@ function performScreenshotSequence(toClipboard) {
     // 4. Output
     if (toClipboard) {
       await copyToClipboard(finalDataUrl);
-      showToast('Copied to Clipboard! 📋');
+      chrome.runtime.sendMessage({ action: 'CAPTURE_COPY_DONE' });
     } else {
       downloadImage(finalDataUrl);
     }
@@ -729,26 +733,27 @@ function createToolbar() {
       <span class="trp-brand-text">TabRecorderPlus</span>
     </div>
     <div class="divider"></div>
-    <button id="btn-undo" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13"/></svg></button>
-    <button id="btn-redo" title="Redo (Ctrl+Y)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 019-9 9 9 0 016 2.3l3 2.7"/></svg></button>
-    <div class="divider"></div>
-    <button id="btn-crop" title="Crop/Select Tool"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 3 10.43 21 13.93 13.93 21 10.43 3 3"></polygon></svg></button>
-    <button id="btn-rect" class="active" title="Rectangle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg></button>
-    <button id="btn-ellipse" title="Ellipse"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/></svg></button>
-    <button id="btn-pen" title="Pen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
-    <button id="btn-text" title="Text"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></button>
-    <button id="btn-blur" title="Blur Sensitive Info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg></button>
-    <div class="divider"></div>
-    <div class="color-picker-wrap">
+    <button id="btn-undo" class="trp-annotate-only" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13"/></svg></button>
+    <button id="btn-redo" class="trp-annotate-only" title="Redo (Ctrl+Y)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 019-9 9 9 0 016 2.3l3 2.7"/></svg></button>
+    <div class="divider trp-annotate-only"></div>
+    <button id="btn-crop" class="trp-capture-only" title="Crop/Select Tool"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 3 10.43 21 13.93 13.93 21 10.43 3 3"></polygon></svg></button>
+    <button id="btn-rect" class="trp-annotate-only active" title="Rectangle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg></button>
+    <button id="btn-ellipse" class="trp-annotate-only" title="Ellipse"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/></svg></button>
+    <button id="btn-pen" class="trp-annotate-only" title="Pen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
+    <button id="btn-text" class="trp-annotate-only" title="Text"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></button>
+    <button id="btn-blur" class="trp-annotate-only" title="Blur Sensitive Info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg></button>
+    <div class="divider trp-annotate-only"></div>
+    <div class="color-picker-wrap trp-annotate-only">
       <input type="color" id="inp-color" value="${currentColor}" title="Color Picker">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 1 0-20 10 10 0 0 1 10 10c0 2.21-1.79 4-4 4h-2.14a2 2 0 0 0-1.76 1.08l-1.04 1.92C12.82 21.6 12.43 22 12 22Z"/><circle cx="7.5" cy="10.5" r="1.5" fill="currentColor"/><circle cx="10.5" cy="7.5" r="1.5" fill="currentColor"/><circle cx="14.5" cy="7.5" r="1.5" fill="currentColor"/><circle cx="17.5" cy="11.5" r="1.5" fill="currentColor"/></svg>
       <div id="inline-color-ind" class="color-indicator-bar" style="background:${currentColor};"></div>
     </div>
+    <div class="divider trp-capture-only"></div>
+    <button id="btn-clip" class="trp-capture-only" title="Copy to Clipboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+    <button id="btn-save" class="trp-capture-only" title="Save File"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
     <div class="divider"></div>
-    <button id="btn-clip" title="Copy to Clipboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
-    <button id="btn-save" title="Save File"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
-    <div class="divider"></div>
-    <button id="btn-clear" title="Clear All" style="color: #FCA5A5;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
+    <button id="btn-toggle-capture" title="Show capture tools">&gt;&gt;</button>
+    <button id="btn-clear" class="trp-annotate-only" title="Clear All" style="color: #FCA5A5;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
     <button id="btn-close" title="Exit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
   `;
   
@@ -798,6 +803,20 @@ function createToolbar() {
     }
 
     #btn-clear:hover { background: rgba(248,113,113,0.15) !important; color: #EF4444 !important; }
+    /* Capture-only elements: hidden by default, shown in capture mode or when annotate expanded */
+    #trp-toolbar .trp-capture-only { display: none !important; }
+    #trp-toolbar.trp-capture-mode .trp-capture-only:not(.divider) { display: flex !important; }
+    #trp-toolbar.trp-capture-mode .trp-capture-only.divider { display: block !important; }
+    #trp-toolbar.trp-annotate-mode.trp-capture-expanded .trp-capture-only:not(.divider) { display: flex !important; }
+    #trp-toolbar.trp-annotate-mode.trp-capture-expanded .trp-capture-only.divider { display: block !important; }
+    /* Annotate-only elements: hidden by default, shown in annotate mode */
+    #trp-toolbar .trp-annotate-only { display: none !important; }
+    #trp-toolbar.trp-annotate-mode .trp-annotate-only:not(.divider):not(.color-picker-wrap) { display: flex !important; }
+    #trp-toolbar.trp-annotate-mode .trp-annotate-only.divider { display: block !important; }
+    #trp-toolbar.trp-annotate-mode .trp-annotate-only.color-picker-wrap { display: flex !important; }
+    /* Toggle button: only in annotate mode */
+    #trp-toolbar #btn-toggle-capture { font-size: 11px !important; font-weight: 700 !important; width: 28px !important; letter-spacing: -0.5px !important; display: none !important; }
+    #trp-toolbar.trp-annotate-mode #btn-toggle-capture { display: flex !important; }
 
     .color-picker-wrap {
       position: relative !important; width: 36px !important; height: 36px !important;
@@ -844,6 +863,26 @@ function createToolbar() {
   
   toolbar.querySelector('#btn-clear').onclick = clearCanvas;
   toolbar.querySelector('#btn-close').onclick = () => toggleAnnotationMode(false);
+
+  toolbar.querySelector('#btn-toggle-capture').onclick = () => {
+    const expanded = toolbar.classList.toggle('trp-capture-expanded');
+    toolbar.querySelector('#btn-toggle-capture').innerHTML = expanded ? '&lt;&lt;' : '&gt;&gt;';
+    toolbar.querySelector('#btn-toggle-capture').title = expanded ? 'Hide capture tools' : 'Show capture tools';
+  };
+}
+
+function applyToolbarMode() {
+  const toolbar = document.getElementById('trp-toolbar');
+  if (!toolbar) return;
+
+  toolbar.classList.remove('trp-capture-expanded');
+  if (toolbarMode === 'capture') {
+    toolbar.classList.remove('trp-annotate-mode');
+    toolbar.classList.add('trp-capture-mode');
+  } else {
+    toolbar.classList.remove('trp-capture-mode');
+    toolbar.classList.add('trp-annotate-mode');
+  }
 }
 
 function disableAnnotationUI() {

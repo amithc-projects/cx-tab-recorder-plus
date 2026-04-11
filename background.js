@@ -193,6 +193,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     })();
   }
+  else if (message.action === "CAPTURE_COPY_DONE") {
+    // Content script completed a clipboard copy. Reopen popup to show "Copied!" done state.
+    (async () => {
+      try {
+        await chrome.storage.session.set({ pendingCaptureResult: 'copied' });
+        await chrome.action.openPopup();
+      } catch (e) {
+        console.log('[TRP bg] openPopup unavailable:', e.message);
+        chrome.storage.session.remove('pendingCaptureResult');
+      }
+    })();
+  }
   else if (message.action === "FSA_FAILED_FALLBACK") {
       console.warn('[TRP bg] FSA_FAILED_FALLBACK error=', message.error, 'filename=', message.filename);
       if (message.error && message.error.includes("Permission demoted")) {

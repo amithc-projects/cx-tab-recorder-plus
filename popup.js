@@ -8,14 +8,26 @@ const viewRecord = document.getElementById('viewRecord');
 const tabRecord = document.getElementById('tabRecord');
 const tabCapture = document.getElementById('tabCapture');
 
+function showCapturingView() {
+  setupView.classList.add('hidden');
+  document.querySelector('.bottom-nav').classList.add('hidden');
+  document.getElementById('capturingView').classList.remove('hidden');
+}
+
 // Check for a pending save result (set by background when offscreen completes a Capture Area save).
 // If present, show the "Saved!" done state briefly and close — no toast needed.
 chrome.storage.session.get('pendingCaptureResult', (result) => {
   if (result && result.pendingCaptureResult === 'done') {
     chrome.storage.session.remove('pendingCaptureResult');
-    setupView.classList.add('hidden');
-    document.getElementById('capturingView').classList.remove('hidden');
+    showCapturingView();
     updateCaptureProgress({ phase: 'done' });
+    setTimeout(() => window.close(), 1200);
+    return; // skip normal init
+  }
+  if (result && result.pendingCaptureResult === 'copied') {
+    chrome.storage.session.remove('pendingCaptureResult');
+    showCapturingView();
+    updateCaptureProgress({ phase: 'copied' });
     setTimeout(() => window.close(), 1200);
     return; // skip normal init
   }
@@ -192,8 +204,7 @@ async function triggerScreenshotFromPopup(intent) {
   await ensureContentScript(tab.id);
 
   // Show progress view immediately
-  document.getElementById('setupView').classList.add('hidden');
-  document.getElementById('capturingView').classList.remove('hidden');
+  showCapturingView();
   updateCaptureProgress({ phase: 'visible' });
 
   // Obtain FSA permission NOW while user activation is still valid (< 5s from click).
@@ -351,6 +362,10 @@ function updateCaptureProgress({ phase, current = 0, total = 0 }) {
     label.textContent = 'Copying to clipboard...';
     detail.textContent = '';
     wrap.style.display = 'none';
+  } else if (phase === 'copied') {
+    label.textContent = 'Copied to Clipboard!';
+    detail.textContent = '';
+    wrap.style.display = 'none';
   } else if (phase === 'visible') {
     label.textContent = 'Capturing visible area...';
     detail.textContent = '';
@@ -373,8 +388,7 @@ async function triggerFullTabCapture(intent) {
 
   if (needsSave && fsaHandle) {
     // Keep popup alive — show progress UI
-    document.getElementById('setupView').classList.add('hidden');
-    document.getElementById('capturingView').classList.remove('hidden');
+    showCapturingView();
     updateCaptureProgress({ phase: 'capturing', current: 0, total: 1 });
 
     // Forward CAPTURE_PROGRESS messages from content script to the UI
