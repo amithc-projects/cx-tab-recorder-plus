@@ -107,10 +107,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   // --- POPUP CROP SUPPORT ---
   // The popup asks for the crop area before it captures the screen.
+  // Only return cropRect if the annotation toolbar is currently active — a stale cropRect
+  // from a previous Capture Area session must not bleed into a plain Capture Visible.
   else if (request.action === "GET_CROP_AND_HIDE_UI") {
     prepareForCapture();
-    // Return cropRect so Popup can do the cropping locally
-    sendResponse({ success: true, cropRect: cropRect, innerWidth: window.innerWidth });
+    sendResponse({ success: true, cropRect: isAnnotationMode ? cropRect : null, innerWidth: window.innerWidth });
   }
   else if (request.action === "RESTORE_UI") {
     restoreAfterCapture();
