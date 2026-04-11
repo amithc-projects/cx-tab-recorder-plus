@@ -213,13 +213,63 @@ chrome.commands.onCommand.addListener((command) => {
 // the entire capture operation, preventing the "port closed before response"
 // race that causes frame skips in Chrome MV3.
 chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== 'trp-capture') return;
+  if (port.name === 'trp-capture') {
+    port.onMessage.addListener((msg) => {
+      if (msg.action !== 'CAPTURE') return;
+      const windowId = port.sender && port.sender.tab ? port.sender.tab.windowId : null;
+      captureForPort(port, windowId, 1);
+    });
+    return;
+  }
 
-  port.onMessage.addListener((msg) => {
-    if (msg.action !== 'CAPTURE') return;
-    const windowId = port.sender && port.sender.tab ? port.sender.tab.windowId : null;
-    captureForPort(port, windowId, 1);
-  });
+  if (port.name === 'trp-screenshot-upload') {
+    // Receives a large screenshot dataUrl in chunks from content.js.
+    // chrome.runtime.sendMessage has a 64MiB limit; chunked port transfer avoids it.
+    const tabId = port.sender && port.sender.tab ? port.sender.tab.id : null;
+    const chunks = [];
+    let filename = '';
+
+    port.onMessage.addListener((msg) => {
+      if (msg.action === 'SCREENSHOT_START') {
+        filename = msg.filename;
+      } else if (msg.action === 'SCREENSHOT_CHUNK') {
+        chunks.push(msg.data);
+      } else if (msg.action === 'SCREENSHOT_END') {
+        const dataUrl = chunks.join('');
+        console.log('[TRP bg] SCREENSHOT_END received, assembling', chunks.length, 'chunks, total size=', dataUrl.length);
+        const key = 'screenshot-' + Date.now();
+
+        (async () => {
+          let blob;
+          try {
+            blob = await (await fetch(dataUrl)).blob();
+            await storeBlobInExtDB(key, blob);
+            console.log('[TRP bg] stored blob in ext IDB, key=', key, 'size=', blob.size);
+          } catch (e) {
+            console.warn('[TRP bg] blob store failed, falling back to offscreen path:', e);
+            await ensureOffscreenDoc();
+            chrome.runtime.sendMessage({ type: 'PROCESS_FSA_DOWNLOAD', dataUrl, filename, tabId });
+            return;
+          }
+
+          console.log('[TRP bg] sending FULL_PAGE_CAPTURE_READY, key=', key);
+          chrome.runtime.sendMessage({ type: 'FULL_PAGE_CAPTURE_READY', key, filename, tabId }, (response) => {
+            const _err = chrome.runtime.lastError;
+            if (_err || !response?.handled) {
+              console.log('[TRP bg] popup not alive, falling back to offscreen/Downloads');
+              (async () => {
+                await ensureOffscreenDoc();
+                chrome.runtime.sendMessage({ type: 'PROCESS_SCREENSHOT_FROM_IDB', key, filename, tabId });
+              })();
+            } else {
+              console.log('[TRP bg] popup acknowledged — it will handle the FSA write');
+            }
+          });
+        })();
+      }
+    });
+    return;
+  }
 });
 
 function captureForPort(port, windowId, attempt) {

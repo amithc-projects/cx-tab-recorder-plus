@@ -339,10 +339,17 @@ async function generateFilename() {
 
 async function downloadImage(dataUrl) {
   const filename = await generateFilename();
-  // Send to background which will store the blob in the extension's IDB
-  // (content scripts use the page's IDB origin, not the extension's)
-  console.log('[TRP content] sending SAVE_SCREENSHOT, filename=', filename);
-  chrome.runtime.sendMessage({ action: "SAVE_SCREENSHOT", dataUrl, filename });
+  // Large dataUrls can exceed Chrome's 64MiB sendMessage limit for tall pages.
+  // Use a port connection and send in 4MB chunks instead.
+  const CHUNK = 4 * 1024 * 1024; // 4MB per message, well under 64MiB cap
+  console.log('[TRP content] uploading screenshot via port, filename=', filename, 'size=', dataUrl.length);
+  const port = chrome.runtime.connect({ name: 'trp-screenshot-upload' });
+  port.postMessage({ action: 'SCREENSHOT_START', filename });
+  for (let i = 0; i < dataUrl.length; i += CHUNK) {
+    port.postMessage({ action: 'SCREENSHOT_CHUNK', data: dataUrl.slice(i, i + CHUNK) });
+  }
+  port.postMessage({ action: 'SCREENSHOT_END' });
+  port.disconnect();
 }
 
 async function copyToClipboard(dataUrl) {
