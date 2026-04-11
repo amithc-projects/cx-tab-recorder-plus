@@ -9,6 +9,8 @@ window.hasTabRecorderPlusRun = true;
 let timerInterval = null;
 let startTime = 0;
 let isRunning = false;
+let isPaused = false;
+let pausedElapsed = 0;
 let activeOptions = {};
 let timerContainer = null;
 let timeText = null;
@@ -88,11 +90,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "ARM_TIMER") {
     activeOptions = request.options;
     if (activeOptions.showClicks) injectRippleStyles();
-    if (activeOptions.showTimer) {
-      createTimerUI();
-      timeText.innerText = "Click to start";
-    }
+    createTimerUI(); // always show bar — full timer or minimal hint
     document.addEventListener('click', interceptClickAndStart, { once: true, capture: true });
+  }
+  else if (request.action === "RECORDING_PAUSED") {
+    if (!isPaused) pauseRecording();
+  }
+  else if (request.action === "RECORDING_RESUMED") {
+    if (isPaused) resumeRecording();
   }
   else if (request.action === "FORCE_STOP_UI") fullStopUIOnly();
   else if (request.action === "TOGGLE_ANNOTATION") toggleAnnotationMode(true);
@@ -1168,7 +1173,8 @@ chrome.storage.local.get(['timerState'], (result) => {
     if (activeOptions.showClicks) injectRippleStyles();
     if (activeOptions.showTimer) {
       createTimerUI();
-      startInternalTimer(false); 
+      updateTimerBarState('recording');
+      startInternalTimer(false);
     }
   }
 });
@@ -1182,27 +1188,58 @@ async function interceptClickAndStart(e) {
     const pixelRatio = window.devicePixelRatio || 1;
     const width = Math.floor(window.innerWidth * pixelRatio);
     const height = Math.floor(window.innerHeight * pixelRatio);
-    chrome.runtime.sendMessage({ 
-      action: "START_RECORDING", 
+    chrome.runtime.sendMessage({
+      action: "START_RECORDING",
       options: activeOptions,
-      width: width, height: height, tabId: null 
+      width: width, height: height, tabId: null
     });
   }
+  startTime = Date.now();
+  pausedElapsed = 0;
+  isPaused = false;
   if (activeOptions.showTimer) {
-    startTime = Date.now();
     if (!timerContainer) createTimerUI();
+    updateTimerBarState('recording');
     startInternalTimer(true);
   } else {
-    saveState(); 
+    // Dismiss the minimal hint bar now that recording has started
+    if (timerContainer) { timerContainer.remove(); timerContainer = null; }
+    saveState();
   }
-  setTimeout(() => { originalTarget.click(); }, 100);
+  // Only replay the click if it wasn't on our own timer bar UI
+  if (!timerContainer || !timerContainer.contains(originalTarget)) {
+    setTimeout(() => { originalTarget.click(); }, 100);
+  }
 }
 
 function startInternalTimer(save = false) {
   if (!isRunning) {
+    isPaused = false;
     timerInterval = setInterval(updateTimer, 100);
     isRunning = true;
     if (save) saveState();
+  }
+}
+
+function pauseRecording() {
+  if (!isRunning || isPaused) return;
+  isPaused = true;
+  pausedElapsed = Date.now() - startTime;
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  updateTimerBarState('paused');
+  if (activeOptions.recordScreen) {
+    chrome.runtime.sendMessage({ action: "PAUSE_RECORDING" });
+  }
+}
+
+function resumeRecording() {
+  if (!isPaused) return;
+  isPaused = false;
+  startTime = Date.now() - pausedElapsed;
+  timerInterval = setInterval(updateTimer, 100);
+  updateTimerBarState('recording');
+  if (activeOptions.recordScreen) {
+    chrome.runtime.sendMessage({ action: "RESUME_RECORDING" });
   }
 }
 
@@ -1220,6 +1257,8 @@ function saveState() {
 function fullStopUIOnly() {
   if (timerInterval) clearInterval(timerInterval);
   isRunning = false;
+  isPaused = false;
+  pausedElapsed = 0;
   if (timerContainer) timerContainer.remove();
   timerContainer = null;
   const rippleStyle = document.getElementById('trp-styles');
@@ -1254,29 +1293,97 @@ function createTimerUI() {
       z-index: 2147483647; display: flex; align-items: center; gap: 10px; cursor: default;
       box-shadow: 0 4px 10px rgba(0,0,0,0.3);
     }
-    .timer-btn { 
-      background: transparent; color: white; border: 1px solid rgba(255,255,255,0.5); 
+    .timer-btn {
+      background: transparent; color: white; border: 1px solid rgba(255,255,255,0.5);
       border-radius: 4px; cursor: pointer; padding: 2px 8px; font-size: 16px; display: flex; align-items: center;
     }
     .timer-btn:hover { background: rgba(255,255,255,0.2); }
+    .timer-btn.trp-hidden { display: none !important; }
   `;
   document.head.appendChild(style);
+
   timerContainer = document.createElement('div');
   timerContainer.id = 'timer-container';
+
+  if (!activeOptions.showTimer) {
+    // Minimal hint — no timer counter or buttons; disappears once recording starts
+    const isMac = navigator.platform.toUpperCase().includes('MAC');
+    const stopKey  = isMac ? '⌘+Shift+S' : 'Ctrl+Shift+S';
+    const pauseKey = 'Alt+Shift+P';
+    const hint = document.createElement('span');
+    hint.style.cssText = 'font-size:13px; font-weight:500; opacity:0.95; letter-spacing:0.1px;';
+    hint.innerText = `Click anywhere to start  •  ${stopKey} to stop  •  ${pauseKey} to pause`;
+    timerContainer.appendChild(hint);
+    document.body.appendChild(timerContainer);
+    return;
+  }
+
   timeText = document.createElement('span');
-  timeText.innerText = "0.0";
+  timeText.id = 'trp-time-text';
+  timeText.innerText = "Click anywhere to start";
   timeText.style.marginRight = "5px";
+
+  // Record/Resume button — visible in 'waiting' and 'paused' states
+  const recordBtn = document.createElement('button');
+  recordBtn.id = 'trp-btn-record';
+  recordBtn.className = 'timer-btn';
+  recordBtn.innerHTML = "&#9210;"; // ⏺
+  recordBtn.title = 'Record / Resume';
+  recordBtn.onclick = (e) => {
+    e.stopPropagation();
+    if (isPaused) resumeRecording();
+    // waiting state: the document capture listener handles the click before this fires
+  };
+
+  // Pause button — visible only in 'recording' state
+  const pauseBtn = document.createElement('button');
+  pauseBtn.id = 'trp-btn-pause';
+  pauseBtn.className = 'timer-btn trp-hidden';
+  pauseBtn.innerHTML = "&#9208;"; // ⏸
+  pauseBtn.title = 'Pause';
+  pauseBtn.onclick = (e) => {
+    e.stopPropagation();
+    pauseRecording();
+  };
+
+  // Stop button — visible in 'recording' and 'paused' states
   const stopBtn = document.createElement('button');
-  stopBtn.className = 'timer-btn';
-  stopBtn.innerHTML = "&#9209;"; 
+  stopBtn.id = 'trp-btn-stop';
+  stopBtn.className = 'timer-btn trp-hidden';
+  stopBtn.innerHTML = "&#9209;"; // ⏹
+  stopBtn.title = 'Stop & Save';
   stopBtn.onclick = (e) => {
     e.stopPropagation();
     chrome.runtime.sendMessage({ action: "STOP_RECORDING" });
     fullStopUIOnly();
   };
+
   timerContainer.appendChild(timeText);
+  timerContainer.appendChild(recordBtn);
+  timerContainer.appendChild(pauseBtn);
   timerContainer.appendChild(stopBtn);
   document.body.appendChild(timerContainer);
+}
+
+function updateTimerBarState(state) {
+  const recordBtn = document.getElementById('trp-btn-record');
+  const pauseBtn = document.getElementById('trp-btn-pause');
+  const stopBtn = document.getElementById('trp-btn-stop');
+  if (!recordBtn || !pauseBtn || !stopBtn) return;
+  if (state === 'waiting') {
+    timeText.innerText = "Click anywhere to start";
+    recordBtn.classList.remove('trp-hidden');
+    pauseBtn.classList.add('trp-hidden');
+    stopBtn.classList.add('trp-hidden');
+  } else if (state === 'recording') {
+    recordBtn.classList.add('trp-hidden');
+    pauseBtn.classList.remove('trp-hidden');
+    stopBtn.classList.remove('trp-hidden');
+  } else if (state === 'paused') {
+    recordBtn.classList.remove('trp-hidden');
+    pauseBtn.classList.add('trp-hidden');
+    stopBtn.classList.remove('trp-hidden');
+  }
 }
 
 function showRipple(x, y) {

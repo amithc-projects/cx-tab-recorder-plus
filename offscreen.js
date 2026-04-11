@@ -62,6 +62,10 @@ chrome.runtime.onMessage.addListener(async (message) => {
     startRecording(message.data);
   } else if (message.type === 'STOP_OFFSCREEN_RECORDING') {
     stopRecording();
+  } else if (message.type === 'PAUSE_OFFSCREEN_RECORDING') {
+    if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.pause();
+  } else if (message.type === 'RESUME_OFFSCREEN_RECORDING') {
+    if (mediaRecorder && mediaRecorder.state === 'paused') mediaRecorder.resume();
   } else if (message.type === 'PROCESS_FSA_DOWNLOAD') {
     processNativeDownload(message.dataUrl, message.filename, message.tabId);
   } else if (message.type === 'PROCESS_SCREENSHOT_FROM_IDB') {

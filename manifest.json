@@ -18,6 +18,10 @@
       "suggested_key": { "default": "Ctrl+Shift+S", "mac": "Command+Shift+S" },
       "description": "Stop Recording and Save"
     },
+    "pause-recording": {
+      "suggested_key": { "default": "Alt+Shift+P", "mac": "Alt+Shift+P" },
+      "description": "Pause / Resume Recording"
+    },
     "annotate": {
       "suggested_key": { "default": "Alt+Shift+A", "mac": "Alt+Shift+A" },
       "description": "Open annotation toolbar on current page"

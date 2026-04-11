@@ -2,6 +2,7 @@
 
 let recordingTabId = null;
 let isRecording = false;
+let isPausedRecording = false;
 
 // Context menu — single item that opens the popup as if the toolbar icon was clicked.
 // Created on install; context menus persist in Chrome across service worker restarts.
@@ -111,6 +112,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log('[TRP bg] STOP_RECORDING');
     handleStopRecording();
     sendResponse({ success: true });
+  }
+  else if (message.action === "PAUSE_RECORDING") {
+    console.log('[TRP bg] PAUSE_RECORDING');
+    isPausedRecording = true;
+    chrome.runtime.sendMessage({ type: 'PAUSE_OFFSCREEN_RECORDING' });
+  }
+  else if (message.action === "RESUME_RECORDING") {
+    console.log('[TRP bg] RESUME_RECORDING');
+    isPausedRecording = false;
+    chrome.runtime.sendMessage({ type: 'RESUME_OFFSCREEN_RECORDING' });
   }
   else if (message.action === "GET_STATUS") {
     // Read from storage so state survives service worker restarts
@@ -272,6 +283,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.commands.onCommand.addListener((command) => {
   if (command === "stop-recording" && isRecording) {
     handleStopRecording();
+  } else if (command === "pause-recording" && isRecording) {
+    if (isPausedRecording) {
+      isPausedRecording = false;
+      chrome.runtime.sendMessage({ type: 'RESUME_OFFSCREEN_RECORDING' });
+      chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+        if (tab) chrome.tabs.sendMessage(tab.id, { action: 'RECORDING_RESUMED' }).catch(() => {});
+      });
+    } else {
+      isPausedRecording = true;
+      chrome.runtime.sendMessage({ type: 'PAUSE_OFFSCREEN_RECORDING' });
+      chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+        if (tab) chrome.tabs.sendMessage(tab.id, { action: 'RECORDING_PAUSED' }).catch(() => {});
+      });
+    }
   } else if (command === "annotate") {
     // Global shortcut (Alt+Shift+A) — open annotation toolbar on the active tab
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
@@ -479,6 +504,7 @@ async function handleStartRecording(tabId, message) {
 
 function handleStopRecording() {
   isRecording = false;
+  isPausedRecording = false;
   recordingTabId = null;
   chrome.storage.local.set({ isRecording: false });
   chrome.action.setBadgeText({ text: "" });
