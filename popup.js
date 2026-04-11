@@ -37,42 +37,13 @@ if (tabRecord && tabCapture) {
   tabCapture.addEventListener('click', () => switchTab('capture'));
 }
 
-// Settings load
-chrome.storage.local.get([
-  'showTimer', 'recordScreen', 'timerPosition', 'showClicks', 'captureDefault', 'saveFileFormat',
-  'enableCaption', 'captionPos', 'captionText', 'enableWatermark', 'watermarkText'
-], (result) => {
+// Recording tab settings load (capture settings moved to settings.html)
+chrome.storage.local.get(['showTimer', 'recordScreen', 'timerPosition', 'showClicks'], (result) => {
   if (document.getElementById('showTimer')) document.getElementById('showTimer').checked = result.showTimer !== false;
   if (document.getElementById('recordScreen')) document.getElementById('recordScreen').checked = result.recordScreen !== false;
   if (document.getElementById('timerPosition')) document.getElementById('timerPosition').value = result.timerPosition || 'bottom-center';
-  if (document.getElementById('showClicks')) document.getElementById('showClicks').checked = result.showClicks !== false; 
-  if (document.getElementById('captureDefault')) document.getElementById('captureDefault').value = result.captureDefault || 'both';
-  if (document.getElementById('saveFileFormat')) document.getElementById('saveFileFormat').value = result.saveFileFormat || '{{domain}}/{{timestamp}}-{{tab.title}}.png';
-  if (document.getElementById('enableCaption')) document.getElementById('enableCaption').checked = result.enableCaption || false;
-  if (document.getElementById('captionPos')) document.getElementById('captionPos').value = result.captionPos || 'bottom';
-  if (document.getElementById('captionText')) document.getElementById('captionText').value = result.captionText || 'Captured from {{domain}}';
-  if (document.getElementById('enableWatermark')) document.getElementById('enableWatermark').checked = result.enableWatermark || false;
-  if (document.getElementById('watermarkText')) document.getElementById('watermarkText').value = result.watermarkText || 'CONFIDENTIAL';
+  if (document.getElementById('showClicks')) document.getElementById('showClicks').checked = result.showClicks !== false;
 });
-
-['saveFileFormat', 'enableCaption', 'captionPos', 'captionText', 'enableWatermark', 'watermarkText'].forEach(id => {
-  if (document.getElementById(id)) {
-    document.getElementById(id).addEventListener('change', (e) => {
-      chrome.storage.local.set({ [id]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
-    });
-    if (document.getElementById(id).type === 'text') {
-      document.getElementById(id).addEventListener('input', (e) => {
-        chrome.storage.local.set({ [id]: e.target.value });
-      });
-    }
-  }
-});
-
-if (document.getElementById('captureDefault')) {
-  document.getElementById('captureDefault').addEventListener('change', (e) => {
-    chrome.storage.local.set({ captureDefault: e.target.value });
-  });
-}
 
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -82,16 +53,14 @@ document.addEventListener('keydown', (e) => {
   try {
     if (key === 'r' && !setupView.classList.contains('hidden')) document.getElementById('btnRecordScreen').click();
     
-    // Screenshot (S)
-    if (key === 's') {
-      const btn = document.getElementById('screenshotBtn') || document.getElementById('btnFullTab');
+    // Capture Entire Page (E)
+    if (key === 'e') {
+      const btn = document.getElementById('screenshotBtn');
       if (btn) btn.dispatchEvent(new MouseEvent('click', { shiftKey: e.shiftKey }));
     }
-    
-    // Window (W or C for legacy clipboard)
-    if (key === 'w' || key === 'c') document.getElementById('clipboardBtn').dispatchEvent(new MouseEvent('click', { shiftKey: e.shiftKey }));  
-    
-    // Area (A)
+    // Capture Visible (V)
+    if (key === 'v') document.getElementById('clipboardBtn').dispatchEvent(new MouseEvent('click', { shiftKey: e.shiftKey }));
+    // Capture Area (A)
     if (key === 'a') document.getElementById('annotateBtn').click();
   } catch(e) {}
 });
@@ -373,13 +342,17 @@ function showStopView() {
   recordingView.classList.remove('hidden');
 }
 
-function getActionIntent(e) {
-  const mode = document.getElementById('captureDefault') ? document.getElementById('captureDefault').value : 'both';
-  if (e.shiftKey) {
-    if (mode === 'both') return 'save'; // If both, shift-modifier skips copy and just saves
-    return mode === 'copy' ? 'save' : 'copy';
-  }
-  return mode;
+async function getActionIntent(e) {
+  return new Promise(resolve => {
+    chrome.storage.local.get(['captureDefault'], (result) => {
+      const mode = result.captureDefault || 'both';
+      if (e.shiftKey) {
+        resolve(mode === 'both' ? 'save' : (mode === 'copy' ? 'save' : 'copy'));
+      } else {
+        resolve(mode);
+      }
+    });
+  });
 }
 
 // Filename Parser Helper
@@ -521,40 +494,14 @@ async function getHandle() {
 }
 
 // Attach Action Listeners
-if (document.getElementById('btnPickFolder')) {
-  getHandle().then(handle => {
-    if (handle) {
-      document.getElementById('folderNameDisplay').innerText = `Root: ${handle.name}/`;
-    } else {
-      document.getElementById('folderNameDisplay').innerText = `⚠️ Required: Setup Local Save Path`;
-      document.getElementById('folderNameDisplay').style.color = '#F87171';
-      document.getElementById('btnPickFolder').style.background = '#2563EB';
-      document.getElementById('btnPickFolder').innerText = 'Grant Folder Permission';
-    }
-  }).catch(e=>{});
-  document.getElementById('btnPickFolder').addEventListener('click', async () => {
-    try {
-      const handle = await window.showDirectoryPicker({ id: "trp-out", mode: "readwrite" });
-      await saveHandle(handle);
-      document.getElementById('folderNameDisplay').innerText = `Root: ${handle.name}/`;
-      document.getElementById('folderNameDisplay').style.color = '#10B981';
-      document.getElementById('btnPickFolder').style.background = '#1F2937';
-      document.getElementById('btnPickFolder').innerText = 'Change Folder...';
-      chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
-         if (tabs.length) chrome.tabs.sendMessage(tabs[0].id, { action: "SHOW_TOAST", message: "Folder Location Pinned! 📁" });
-      });
-    } catch(e) {}
-  });
-}
-
 if (document.getElementById('annotateBtn')) {
   document.getElementById('annotateBtn').addEventListener('click', triggerAnnotateFromPopup);
 }
 if (document.getElementById('screenshotBtn')) {
-  document.getElementById('screenshotBtn').addEventListener('click', (e) => triggerFullTabCapture(getActionIntent(e)));
+  document.getElementById('screenshotBtn').addEventListener('click', async (e) => triggerFullTabCapture(await getActionIntent(e)));
 }
 if (document.getElementById('clipboardBtn')) {
-  document.getElementById('clipboardBtn').addEventListener('click', (e) => triggerScreenshotFromPopup(getActionIntent(e)));
+  document.getElementById('clipboardBtn').addEventListener('click', async (e) => triggerScreenshotFromPopup(await getActionIntent(e)));
 }
 
 // Start Recording
@@ -609,8 +556,8 @@ if (document.getElementById('navMerge')) {
     chrome.tabs.create({ url: 'merger.html' });
   });
 }
-if (document.getElementById('helpBtn')) {
-  document.getElementById('helpBtn').addEventListener('click', () => {
-    chrome.tabs.create({ url: 'help.html' });
+if (document.getElementById('settingsBtn')) {
+  document.getElementById('settingsBtn').addEventListener('click', () => {
+    chrome.tabs.create({ url: 'settings.html' });
   });
 }
