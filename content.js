@@ -80,6 +80,10 @@ document.addEventListener('keydown', (e) => {
 
 // 2. MESSAGE LISTENERS
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "PING") {
+    sendResponse({ alive: true });
+    return;
+  }
   if (request.action === "ARM_TIMER") {
     activeOptions = request.options;
     if (activeOptions.showClicks) injectRippleStyles();

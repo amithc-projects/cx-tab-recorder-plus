@@ -96,14 +96,85 @@ document.addEventListener('keydown', (e) => {
   } catch(e) {}
 });
 
-// Clipboard Capture
+// Ensure content script is loaded in the tab. If not, inject content.js and wait briefly.
+async function ensureContentScript(tabId) {
+  return new Promise((resolve) => {
+    chrome.tabs.sendMessage(tabId, { action: 'PING' }, (response) => {
+      if (chrome.runtime.lastError) {
+        chrome.scripting.executeScript(
+          { target: { tabId }, files: ['content.js'] },
+          () => {
+            const _ignored = chrome.runtime.lastError;
+            setTimeout(() => resolve(true), 80);
+          }
+        );
+      } else {
+        resolve(true);
+      }
+    });
+  });
+}
+
+// Obtain FSA handle with 'granted' permission while user activation is fresh.
+async function getGrantedFSAHandle() {
+  try {
+    const handle = await getHandle().catch(() => null);
+    console.log('[TRP popup] getGrantedFSAHandle: handle=', handle ? handle.name : 'null');
+    if (!handle) return null;
+    let perm = await handle.queryPermission({ mode: "readwrite" });
+    console.log('[TRP popup] queryPermission result:', perm);
+    if (perm !== 'granted') {
+      perm = await handle.requestPermission({ mode: "readwrite" }).catch((e) => { console.warn('[TRP popup] requestPermission threw:', e); return 'denied'; });
+      console.log('[TRP popup] requestPermission result:', perm);
+    }
+    return perm === 'granted' ? handle : null;
+  } catch (e) { console.warn('[TRP popup] getGrantedFSAHandle error:', e); return null; }
+}
+
+// Write a data URL directly to an FSA handle (permission must already be 'granted').
+async function writeFSA(handle, dataUrl, filename) {
+  console.log('[TRP popup] writeFSA: handle=', handle.name, 'filename=', filename, 'dataUrl length=', dataUrl.length);
+  try {
+    let parts = filename.split('/');
+    const leaf = parts.pop();
+    let dir = handle;
+    for (const p of parts) {
+      console.log('[TRP popup] writeFSA: creating subdir', p);
+      dir = await dir.getDirectoryHandle(p, { create: true });
+    }
+    console.log('[TRP popup] writeFSA: creating file', leaf);
+    const fileHandle = await dir.getFileHandle(leaf, { create: true });
+    const writable = await fileHandle.createWritable();
+    const blob = await (await fetch(dataUrl)).blob();
+    console.log('[TRP popup] writeFSA: writing blob size=', blob.size);
+    await writable.write(blob);
+    await writable.close();
+    console.log('[TRP popup] writeFSA: SUCCESS');
+    return true;
+  } catch (err) {
+    console.warn('[TRP popup] writeFSA FAILED:', err);
+    return false;
+  }
+}
+
+// Copy Window / viewport capture
 async function triggerScreenshotFromPopup(intent) {
+  console.log('[TRP popup v2] triggerScreenshotFromPopup intent=', intent);
   const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
   if (!tab) return;
 
+  await ensureContentScript(tab.id);
+
+  // Obtain FSA permission NOW while user activation is still valid (< 5s from click).
+  let fsaHandle = null;
+  if (intent === 'save' || intent === 'both') {
+    fsaHandle = await getGrantedFSAHandle();
+    console.log('[TRP popup] fsaHandle after getGrantedFSAHandle:', fsaHandle ? fsaHandle.name : 'null');
+  }
+
   if (intent) {
     chrome.tabs.sendMessage(tab.id, { action: "GET_CROP_AND_HIDE_UI" }, (response) => {
-      const _ignored = chrome.runtime.lastError; // consume to avoid uncaught error
+      const _ignored = chrome.runtime.lastError;
       setTimeout(() => {
         chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" }, async (dataUrl) => {
           if (chrome.runtime.lastError || !dataUrl) { restoreAndClose(tab.id); return; }
@@ -122,15 +193,25 @@ async function triggerScreenshotFromPopup(intent) {
               if (intent === 'copy') chrome.tabs.sendMessage(tab.id, { action: "SHOW_TOAST", message: "Copied Window! 📋" });
             } catch (err) { console.error("Clipboard failed", err); }
           }
-          
+
           if (intent === 'save' || intent === 'both') {
             const filename = await generateFilename(tab);
-            chrome.runtime.sendMessage({ action: "DOWNLOAD_FILE", dataUrl: dataUrl, filename: filename });
+            console.log('[TRP popup] save path: fsaHandle=', fsaHandle ? fsaHandle.name : 'null', 'filename=', filename);
+            if (fsaHandle) {
+              const ok = await writeFSA(fsaHandle, dataUrl, filename);
+              if (!ok) {
+                console.log('[TRP popup] writeFSA failed, falling back to DOWNLOAD_FILE');
+                chrome.runtime.sendMessage({ action: "DOWNLOAD_FILE", dataUrl, filename });
+              }
+            } else {
+              console.log('[TRP popup] no fsaHandle, sending DOWNLOAD_FILE to background');
+              chrome.runtime.sendMessage({ action: "DOWNLOAD_FILE", dataUrl, filename });
+            }
             if (intent === 'save') chrome.tabs.sendMessage(tab.id, { action: "SHOW_TOAST", message: "Saved Window! 💾" });
           }
-          
+
           if (intent === 'both') {
-             chrome.tabs.sendMessage(tab.id, { action: "SHOW_TOAST", message: "Saved & Copied! 💾📋" });
+            chrome.tabs.sendMessage(tab.id, { action: "SHOW_TOAST", message: "Saved & Copied! 💾📋" });
           }
 
           restoreAndClose(tab.id);
@@ -158,36 +239,52 @@ function cropImageLocal(dataUrl, rect, tabWidth) {
       if (w < 0) { x += w; w = Math.abs(w); }
       if (h < 0) { y += h; h = Math.abs(h); }
       if (x < 0) x = 0; if (y < 0) y = 0;
-      
-      const sx = x * ratio;
-      const sy = y * ratio;
-      const sw = w * ratio;
-      const sh = h * ratio;
-      
+      const sx = x * ratio, sy = y * ratio, sw = w * ratio, sh = h * ratio;
       cvs.width = sw; cvs.height = sh;
-      const ctx = cvs.getContext('2d');
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+      cvs.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
       resolve(cvs.toDataURL('image/png'));
     };
     img.src = dataUrl;
   });
 }
 
-// Annotation
+// Ask background to ensure the offscreen document exists BEFORE we call
+// requestPermission in popup. Permission propagates to already-live contexts;
+// a newly-created offscreen created AFTER the grant won't inherit it.
+async function ensureOffscreenExists() {
+  return new Promise(resolve => {
+    chrome.runtime.sendMessage({ action: "ENSURE_OFFSCREEN" }, () => {
+      const _ignored = chrome.runtime.lastError;
+      resolve();
+    });
+  });
+}
+
+// Annotation — grant FSA permission early, then close popup
 async function triggerAnnotateFromPopup() {
+  console.log('[TRP popup v2] triggerAnnotateFromPopup');
   const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
   if (tab) {
+    await ensureContentScript(tab.id);
+    await ensureOffscreenExists();          // offscreen must exist before we grant permission
+    const h = await getGrantedFSAHandle();  // permission propagates to existing offscreen
+    console.log('[TRP popup] annotate: fsaHandle after grant=', h ? h.name : 'null');
     chrome.tabs.sendMessage(tab.id, { action: "START_CROP_MODE" });
     window.close();
   }
 }
 
-// Full Tab Capture (Fallback to standard screenshot until stitcher is built)
+// Full Tab Capture — grant FSA permission early, then close popup
 async function triggerFullTabCapture(intent) {
+  console.log('[TRP popup v2] triggerFullTabCapture intent=', intent);
   const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
   if (tab) {
-     chrome.tabs.sendMessage(tab.id, { action: "CAPTURE_FULL_PAGE", intent: intent }); 
-     window.close();
+    await ensureContentScript(tab.id);
+    await ensureOffscreenExists();          // offscreen must exist before we grant permission
+    const h = await getGrantedFSAHandle();  // permission propagates to existing offscreen
+    console.log('[TRP popup] fullTab: fsaHandle after grant=', h ? h.name : 'null');
+    chrome.tabs.sendMessage(tab.id, { action: "CAPTURE_FULL_PAGE", intent: intent });
+    window.close();
   }
 }
 

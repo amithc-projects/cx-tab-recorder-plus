@@ -35,17 +35,21 @@ chrome.runtime.onMessage.addListener(async (message) => {
 });
 
 async function processNativeDownload(dataUrl, filename, tabId) {
+  console.log('[TRP offscreen] processNativeDownload filename=', filename);
+  let savedOk = false;
   try {
-    let handle = await getHandle().catch(() => null);
+    let handle = await getHandle().catch((e) => { console.warn('[TRP offscreen] getHandle error:', e); return null; });
+    console.log('[TRP offscreen] handle=', handle ? handle.name : 'null');
     if (!handle) throw new Error("No configured handle");
-    
+
     let permState = await handle.queryPermission({ mode: "readwrite" });
+    console.log('[TRP offscreen] queryPermission=', permState);
     if (permState !== 'granted') {
-      // Attempt silent re-grant — works in extension offscreen contexts without a user gesture
-      permState = await handle.requestPermission({ mode: "readwrite" }).catch(() => 'denied');
+      permState = await handle.requestPermission({ mode: "readwrite" }).catch((e) => { console.warn('[TRP offscreen] requestPermission threw:', e); return 'denied'; });
+      console.log('[TRP offscreen] requestPermission result=', permState);
     }
-    if (permState !== 'granted') throw new Error("Permission demoted to prompt");
-    
+    if (permState !== 'granted') throw new Error("Permission demoted to: " + permState);
+
     let parts = filename.split('/');
     let leaf = parts.pop();
     let currentDir = handle;
@@ -54,15 +58,22 @@ async function processNativeDownload(dataUrl, filename, tabId) {
     }
     const fileHandle = await currentDir.getFileHandle(leaf, { create: true });
     const writable = await fileHandle.createWritable();
-    
+
     const res = await fetch(dataUrl);
     const blob = await res.blob();
+    console.log('[TRP offscreen] writing blob size=', blob.size);
     await writable.write(blob);
     await writable.close();
-    
-    if (tabId) chrome.tabs.sendMessage(tabId, { action: "SHOW_TOAST", message: "Saved Native! 🗂️" });
+    console.log('[TRP offscreen] write SUCCESS');
+    savedOk = true;
   } catch(err) {
+    console.warn('[TRP offscreen] FSA failed, sending fallback. error=', err.message);
     chrome.runtime.sendMessage({ action: "FSA_FAILED_FALLBACK", dataUrl: dataUrl, filename: filename, error: err.message });
+  }
+
+  // chrome.tabs is not available in offscreen — route the toast through background.
+  if (savedOk && tabId) {
+    chrome.runtime.sendMessage({ action: "RELAY_TOAST", tabId: tabId, message: "Saved! 🗂️" });
   }
 }
 

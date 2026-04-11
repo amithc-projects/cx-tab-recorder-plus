@@ -25,23 +25,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   else if (message.action === "DOWNLOAD_FILE") {
     (async () => {
+      console.log('[TRP bg] DOWNLOAD_FILE received, filename=', message.filename);
       // 1. Ensure Offscreen DOM exists (so it has FSA access)
       const existingContexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
+      console.log('[TRP bg] existing offscreen contexts:', existingContexts.length);
       if (existingContexts.length === 0) {
         await chrome.offscreen.createDocument({
           url: 'offscreen.html',
           reasons: ['USER_MEDIA'],
           justification: 'FSA DOM Handle'
         });
-        // Give the offscreen document time to load and register its message listener
         await new Promise(r => setTimeout(r, 150));
       }
 
       let tabId = sender.tab ? sender.tab.id : null;
-      // 2. Dispatch to offscreen.js
+      console.log('[TRP bg] sending PROCESS_FSA_DOWNLOAD to offscreen, tabId=', tabId);
       chrome.runtime.sendMessage({
-         type: 'PROCESS_FSA_DOWNLOAD', 
-         dataUrl: message.dataUrl, 
+         type: 'PROCESS_FSA_DOWNLOAD',
+         dataUrl: message.dataUrl,
          filename: message.filename,
          tabId: tabId
       });
@@ -49,8 +50,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     })();
     return true;
   }
+  else if (message.action === "ENSURE_OFFSCREEN") {
+    // Popup calls this before granting FSA permission so the existing offscreen
+    // receives the permission update (newly-created contexts don't inherit it).
+    (async () => {
+      const existingContexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
+      console.log('[TRP bg] ENSURE_OFFSCREEN: existing=', existingContexts.length);
+      if (existingContexts.length === 0) {
+        await chrome.offscreen.createDocument({
+          url: 'offscreen.html',
+          reasons: ['USER_MEDIA'],
+          justification: 'FSA DOM Handle'
+        });
+        await new Promise(r => setTimeout(r, 150));
+      }
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+  else if (message.action === "RELAY_TOAST") {
+    // Offscreen cannot use chrome.tabs — relay toasts through background instead.
+    chrome.tabs.sendMessage(message.tabId, { action: "SHOW_TOAST", message: message.message }).catch(() => {});
+  }
   else if (message.action === "FSA_FAILED_FALLBACK") {
-      console.warn("FSA fallback triggered in offscreen:", message.error);
+      console.warn('[TRP bg] FSA_FAILED_FALLBACK error=', message.error, 'filename=', message.filename);
       if (message.error && message.error.includes("Permission demoted")) {
         if (chrome.notifications) {
           chrome.notifications.create({
