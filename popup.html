@@ -96,6 +96,12 @@
 
         <div class="action-card" style="cursor: default; padding: 10px 12px; background: transparent; border: 1px dashed #374151; flex-direction: column; align-items: stretch; gap: 8px;">
           <div style="display:flex; justify-content: space-between;">
+            <div class="action-text"><div class="action-title" style="font-size:12px;">Save Directory</div></div>
+          </div>
+          <button id="btnPickFolder" class="styled-select" style="background:#1F2937; color:#E5E7EB; border: 1px solid #374151; cursor:pointer; width:100%;">Select Folder...</button>
+          <div id="folderNameDisplay" style="font-size:11px; margin-top:0px; color:#9CA3AF; text-align:right;">Default: ~/Downloads/</div>
+          <div style="height:1px; background: rgba(255,255,255,0.05); margin: 2px 0;"></div>
+          <div style="display:flex; justify-content: space-between;">
             <div class="action-text"><div class="action-title" style="font-size:12px;">Save Format</div></div>
             <div class="action-desc" style="font-size:9px;">{{timestamp}}, {{domain}}, {{tab.title}}, {{tab.url}}</div>
           </div>
@@ -145,7 +151,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
           </div>
           <div class="action-text">
-            <div class="action-title">Copy Window to Clipboard</div>
+            <div class="action-title">Copy Window</div>
             <div class="action-desc">Snap visible area immediately</div>
           </div>
           <div class="shortcut-key">C</div>

@@ -1,4 +1,25 @@
 // offscreen.js
+
+const DB_NAME = "TabRecorderDB";
+const STORE_NAME = "Handles";
+function openDB() {
+  return new Promise((r, j) => {
+    let req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = e => req.result.createObjectStore(STORE_NAME);
+    req.onsuccess = () => r(req.result);
+    req.onerror = () => j(req.error);
+  });
+}
+async function getHandle() {
+  let db = await openDB();
+  return new Promise((r, j) => {
+    let tx = db.transaction(STORE_NAME, "readonly");
+    let req = tx.objectStore(STORE_NAME).get("saveDirectory");
+    req.onsuccess = () => r(req.result);
+    req.onerror = () => j(req.error);
+  });
+}
+
 let mediaRecorder;
 let recordedChunks = [];
 
@@ -8,8 +29,42 @@ chrome.runtime.onMessage.addListener(async (message) => {
     startRecording(message.data);
   } else if (message.type === 'STOP_OFFSCREEN_RECORDING') {
     stopRecording();
+  } else if (message.type === 'PROCESS_FSA_DOWNLOAD') {
+    processNativeDownload(message.dataUrl, message.filename, message.tabId);
   }
 });
+
+async function processNativeDownload(dataUrl, filename, tabId) {
+  try {
+    let handle = await getHandle().catch(() => null);
+    if (!handle) throw new Error("No configured handle");
+    
+    let permState = await handle.queryPermission({ mode: "readwrite" });
+    if (permState !== 'granted') {
+      // Attempt silent re-grant — works in extension offscreen contexts without a user gesture
+      permState = await handle.requestPermission({ mode: "readwrite" }).catch(() => 'denied');
+    }
+    if (permState !== 'granted') throw new Error("Permission demoted to prompt");
+    
+    let parts = filename.split('/');
+    let leaf = parts.pop();
+    let currentDir = handle;
+    for (const p of parts) {
+      currentDir = await currentDir.getDirectoryHandle(p, { create: true });
+    }
+    const fileHandle = await currentDir.getFileHandle(leaf, { create: true });
+    const writable = await fileHandle.createWritable();
+    
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    await writable.write(blob);
+    await writable.close();
+    
+    if (tabId) chrome.tabs.sendMessage(tabId, { action: "SHOW_TOAST", message: "Saved Native! 🗂️" });
+  } catch(err) {
+    chrome.runtime.sendMessage({ action: "FSA_FAILED_FALLBACK", dataUrl: dataUrl, filename: filename, error: err.message });
+  }
+}
 
 async function startRecording(data) {
   const streamId = data.streamId;

@@ -264,6 +264,8 @@ function showToast(message) {
 
 // --- FULL PAGE CAPTURE ---
 async function performFullPageCapture(intent) {
+  if (window.isTabRecorderCapturing) return;
+  window.isTabRecorderCapturing = true;
   prepareForCapture();
   
   const styleEl = document.createElement('style');
@@ -352,6 +354,10 @@ async function performFullPageCapture(intent) {
   showToast("Stitching " + snaps.length + " images...");
 
   const stitchedUrl = await stichImages(snaps, viewportHeight);
+  if (!stitchedUrl) {
+    window.isTabRecorderCapturing = false;
+    return showToast("⚠️ Capture Cancelled: No frames acquired.");
+  }
   
   if (intent === 'copy' || intent === 'both') {
     try {
@@ -370,10 +376,13 @@ async function performFullPageCapture(intent) {
   if (intent === 'copy') showToast("Copied Full Page! 📋");
   else if (intent === 'save') showToast("Saved Full Page! 💾");
   else showToast("Saved & Copied Full Page! 💾📋");
+  
+  window.isTabRecorderCapturing = false;
 }
 
 function stichImages(snaps, realViewportHeight) {
   return new Promise((resolve) => {
+    if (!snaps || snaps.length === 0) return resolve(null);
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     let loadedCount = 0;

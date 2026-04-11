@@ -1,9 +1,8 @@
 // content.js
+(function() {
 
-// 0. SAFETY GUARD
-if (window.hasTabRecorderPlusRun) {
-  throw new Error("TabRecorderPlus already loaded on this page");
-}
+// 0. SAFETY GUARD — IIFE allows safe re-injection without duplicate listeners
+if (window.hasTabRecorderPlusRun) return;
 window.hasTabRecorderPlusRun = true;
 
 // --- VARIABLES ---
@@ -123,48 +122,86 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 function performScreenshotSequence(toClipboard) {
   // 1. Hide UI
   prepareForCapture();
-  
-  setTimeout(() => {
-    // 2. Capture Screen
-    chrome.runtime.sendMessage({ action: "CAPTURE_FOR_CLIPBOARD" }, async (response) => {
-      if (response && response.success) {
-        let finalDataUrl = response.dataUrl;
 
-        // 3. Apply Crop (if exists)
-        if (cropRect) {
-          finalDataUrl = await cropImage(response.dataUrl, cropRect);
-        }
-
-        finalDataUrl = await applyBrandingToImage(finalDataUrl);
-
-        // 4. Output
-        if (toClipboard) {
-          copyToClipboard(finalDataUrl);
-          showToast('Copied to Clipboard! 📋');
-        } else {
-          downloadImage(finalDataUrl);
-        }
-      }
-      
-      // 5. Restore UI
+  // 2. Small delay to let the UI hide, then capture with retry
+  setTimeout(async () => {
+    const response = await captureWithRetry();
+    if (!response) {
+      showToast('⚠️ Capture failed — please try again.');
       restoreAfterCapture();
+      return;
+    }
+
+    let finalDataUrl = response.dataUrl;
+
+    // 3. Apply Crop (if exists)
+    if (cropRect) {
+      finalDataUrl = await cropImage(response.dataUrl, cropRect);
+    }
+
+    finalDataUrl = await applyBrandingToImage(finalDataUrl);
+
+    // 4. Output
+    if (toClipboard) {
+      await copyToClipboard(finalDataUrl);
+      showToast('Copied to Clipboard! 📋');
+    } else {
+      downloadImage(finalDataUrl);
+    }
+
+    // 5. Restore UI
+    restoreAfterCapture();
+  }, 150);
+}
+
+// Captures the visible tab via a long-lived port so the service worker cannot
+// be terminated mid-flight (Chrome MV3 requirement).  The port holds an event
+// listener which prevents Chrome from suspending the SW until we disconnect.
+function captureWithRetry() {
+  return new Promise((resolve) => {
+    let settled = false;
+
+    let port;
+    try {
+      port = chrome.runtime.connect({ name: 'trp-capture' });
+    } catch (e) {
+      resolve(null);
+      return;
+    }
+
+    port.onMessage.addListener((msg) => {
+      if (settled) return;
+      settled = true;
+      port.disconnect();
+      resolve(msg.success ? msg : null);
     });
-  }, 100);
+
+    port.onDisconnect.addListener(() => {
+      if (settled) return;
+      settled = true;
+      const _ignored = chrome.runtime.lastError; // consume to avoid uncaught warning
+      resolve(null);
+    });
+
+    port.postMessage({ action: 'CAPTURE' });
+  });
 }
 
 function prepareForCapture() {
-  const toolbar = document.getElementById('trp-toolbar');
   if (timerContainer) timerContainer.style.opacity = '0';
-  if (toolbar) toolbar.style.opacity = '0';
-  // Temporarily remove the dashed crop line so it's not in the picture
+  // Hide only the toolbar (not the canvas), so drawn annotations appear in the screenshot
+  const toolbar = document.getElementById('trp-toolbar');
+  if (toolbar) toolbar.style.visibility = 'hidden';
+  // Make the container non-interactive but keep canvas visible
+  if (annotationContainer) annotationContainer.style.pointerEvents = 'none';
   if (cropRect) redrawCanvas(true);
 }
 
 function restoreAfterCapture() {
-  const toolbar = document.getElementById('trp-toolbar');
   if (timerContainer) timerContainer.style.opacity = '1';
-  if (toolbar) toolbar.style.opacity = '1';
-  // Put the dashed line back
+  const toolbar = document.getElementById('trp-toolbar');
+  if (toolbar) toolbar.style.visibility = 'visible';
+  if (annotationContainer) annotationContainer.style.pointerEvents = 'all';
   if (cropRect) redrawCanvas();
 }
 
@@ -338,6 +375,9 @@ function showToast(message) {
 
 // --- FULL PAGE CAPTURE ---
 async function performFullPageCapture(intent) {
+  if (window.isTabRecorderCapturing) return;
+  window.isTabRecorderCapturing = true;
+  try {
   prepareForCapture();
   
   const styleEl = document.createElement('style');
@@ -396,19 +436,24 @@ async function performFullPageCapture(intent) {
 
   while (true) {
     await new Promise(r => setTimeout(r, 600)); // Must be > 500ms to avoid Chrome's MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND quota
-    hideFixed(); 
+    hideFixed();
 
     const actualY = isWindow ? window.scrollY : scrollEl.scrollTop;
-    
-    const response = await new Promise(r => chrome.runtime.sendMessage({ action: "CAPTURE_FOR_CLIPBOARD" }, r));
-    if (response && response.dataUrl) snaps.push({ src: response.dataUrl, actualY: actualY });
-    
+
+    const response = await captureWithRetry();
+    if (response && response.dataUrl) {
+      snaps.push({ src: response.dataUrl, actualY: actualY });
+    } else {
+      // Skip this frame rather than aborting the whole capture
+      console.warn('TRP: frame skip at y=' + actualY);
+    }
+
     const nextY = actualY + viewportHeight;
     if (nextY >= totalHeight) break;
-    
+
     if (isWindow) window.scrollTo({ left: 0, top: nextY, behavior: 'instant' });
     else scrollEl.scrollTop = nextY;
-    
+
     const newY = isWindow ? window.scrollY : scrollEl.scrollTop;
     if (newY <= actualY) break;
   }
@@ -426,8 +471,11 @@ async function performFullPageCapture(intent) {
   showToast("Stitching " + snaps.length + " images...");
 
   let stitchedUrl = await stichImages(snaps, viewportHeight);
+  if (!stitchedUrl) {
+    return showToast("⚠️ Capture Cancelled: No frames acquired.");
+  }
   stitchedUrl = await applyBrandingToImage(stitchedUrl);
-  
+
   if (intent === 'copy' || intent === 'both') {
     await copyToClipboard(stitchedUrl);
   }
@@ -435,14 +483,22 @@ async function performFullPageCapture(intent) {
     const filename = await generateFilename();
     chrome.runtime.sendMessage({ action: "DOWNLOAD_FILE", dataUrl: stitchedUrl, filename: filename });
   }
-  
+
   if (intent === 'copy') showToast("Copied Full Page! 📋");
   else if (intent === 'save') showToast("Saved Full Page! 💾");
   else showToast("Saved & Copied Full Page! 💾📋");
+
+  } catch (err) {
+    console.error("Full page capture error:", err);
+    showToast("⚠️ Capture failed: " + err.message);
+  } finally {
+    window.isTabRecorderCapturing = false;
+  }
 }
 
 function stichImages(snaps, realViewportHeight) {
   return new Promise((resolve) => {
+    if (!snaps || snaps.length === 0) return resolve(null);
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     let loadedCount = 0;
@@ -891,9 +947,9 @@ function stopDrawing(e) {
       if (Math.abs(w) > 5 && Math.abs(h) > 5) {
         cropRect = { x: startX, y: startY, w: w, h: h };
         currentShape = null;
-        performScreenshotSequence(true);
+        redrawCanvas(); // Show selection — user presses 💾 or 📋 on the toolbar to capture
       } else {
-        cropRect = null; 
+        cropRect = null;
         currentShape = null;
         redrawCanvas(); // Clear accidental click artifacts
       }
@@ -1072,3 +1128,5 @@ function injectRippleStyles() {
   `;
   document.head.appendChild(style);
 }
+
+})(); // end IIFE safety guard

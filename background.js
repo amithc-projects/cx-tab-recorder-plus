@@ -1,4 +1,5 @@
 // background.js
+
 let recordingTabId = null;
 let isRecording = false;
 
@@ -12,30 +13,70 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true });
   }
   else if (message.action === "GET_STATUS") {
-    sendResponse({ isRecording: isRecording });
+    // Read from storage so state survives service worker restarts
+    chrome.storage.local.get(['isRecording'], (result) => {
+      isRecording = result.isRecording || false;
+      sendResponse({ isRecording });
+    });
+    return true;
   }
   else if (message.type === "RECORDING_FINISHED") {
     downloadRecording(message.url);
   }
   else if (message.action === "DOWNLOAD_FILE") {
-    chrome.downloads.download({
-      url: message.dataUrl,
-      filename: message.filename,
-      saveAs: false
-    }, (dl) => {
-        if (chrome.runtime.lastError) console.error("Download Error:", chrome.runtime.lastError.message);
-        sendResponse({ success: !chrome.runtime.lastError, downloadId: dl });
-    });
+    (async () => {
+      // 1. Ensure Offscreen DOM exists (so it has FSA access)
+      const existingContexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
+      if (existingContexts.length === 0) {
+        await chrome.offscreen.createDocument({
+          url: 'offscreen.html',
+          reasons: ['USER_MEDIA'],
+          justification: 'FSA DOM Handle'
+        });
+        // Give the offscreen document time to load and register its message listener
+        await new Promise(r => setTimeout(r, 150));
+      }
+
+      let tabId = sender.tab ? sender.tab.id : null;
+      // 2. Dispatch to offscreen.js
+      chrome.runtime.sendMessage({
+         type: 'PROCESS_FSA_DOWNLOAD', 
+         dataUrl: message.dataUrl, 
+         filename: message.filename,
+         tabId: tabId
+      });
+      sendResponse({ success: true, pending: true });
+    })();
     return true;
+  }
+  else if (message.action === "FSA_FAILED_FALLBACK") {
+      console.warn("FSA fallback triggered in offscreen:", message.error);
+      if (message.error && message.error.includes("Permission demoted")) {
+        if (chrome.notifications) {
+          chrome.notifications.create({
+            type: "basic",
+            iconUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", 
+            title: "Permission Expired",
+            message: "Tab Recorder lost access to your Folder! Temporarily saved to Downloads. Please click the extension icon to re-grant access."
+          });
+        }
+      }
+      
+      // Fallback
+      chrome.downloads.download({
+        url: message.dataUrl,
+        filename: message.filename,
+        saveAs: false
+      });
   }
   // Case A: Save to File (Download)
   else if (message.action === "TAKE_SCREENSHOT") {
-    takeScreenshot(true);
+    takeScreenshot(true, null, sender.tab ? sender.tab.windowId : null);
   }
   // Case B: Return Data (For Clipboard)
   else if (message.action === "CAPTURE_FOR_CLIPBOARD") {
     // We must return true to indicate we will respond asynchronously
-    takeScreenshot(false, sendResponse);
+    takeScreenshot(false, sendResponse, sender.tab ? sender.tab.windowId : null);
     return true; 
   }
 });
@@ -46,12 +87,50 @@ chrome.commands.onCommand.addListener((command) => {
   }
 });
 
+// Long-lived port for tab capture.
+// Using a port (rather than sendMessage) keeps the service worker alive for
+// the entire capture operation, preventing the "port closed before response"
+// race that causes frame skips in Chrome MV3.
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'trp-capture') return;
+
+  port.onMessage.addListener((msg) => {
+    if (msg.action !== 'CAPTURE') return;
+    const windowId = port.sender && port.sender.tab ? port.sender.tab.windowId : null;
+    captureForPort(port, windowId, 1);
+  });
+});
+
+function captureForPort(port, windowId, attempt) {
+  chrome.tabs.captureVisibleTab(
+    windowId != null ? windowId : chrome.windows.WINDOW_ID_CURRENT,
+    { format: 'png' },
+    (dataUrl) => {
+      if (chrome.runtime.lastError) {
+        const errMsg = chrome.runtime.lastError.message;
+        if (attempt < 4) {
+          setTimeout(() => captureForPort(port, windowId, attempt + 1), 300);
+          return;
+        }
+        console.error('TRP captureVisibleTab failed:', errMsg);
+        try { port.postMessage({ success: false, error: errMsg }); } catch (e) {}
+        return;
+      }
+      try { port.postMessage({ success: true, dataUrl }); } catch (e) {}
+    }
+  );
+}
+
 // Updated Screenshot Function
-function takeScreenshot(download = true, sendResponse = null) {
-  chrome.tabs.captureVisibleTab(null, { format: "png" }, (dataUrl) => {
+function takeScreenshot(download = true, sendResponse = null, windowId = null, attempt = 1) {
+  chrome.tabs.captureVisibleTab(windowId || chrome.windows.WINDOW_ID_CURRENT, { format: "png" }, (dataUrl) => {
     if (chrome.runtime.lastError) {
+      if (attempt < 4) {
+        setTimeout(() => takeScreenshot(download, sendResponse, windowId, attempt + 1), 300);
+        return;
+      }
       console.error(chrome.runtime.lastError);
-      if (sendResponse) sendResponse({ success: false });
+      if (sendResponse) sendResponse({ success: false, error: chrome.runtime.lastError.message });
       return;
     }
 
@@ -72,9 +151,10 @@ function takeScreenshot(download = true, sendResponse = null) {
 
 // ... (Rest of file: handleStartRecording, handleStopRecording, downloadRecording) ...
 // (Ensure you keep the existing functions below this line)
-async function handleStartRecording(tabId, message) { 
+async function handleStartRecording(tabId, message) {
   recordingTabId = tabId;
   isRecording = true;
+  chrome.storage.local.set({ isRecording: true });
   const width = message.width;     
   const height = message.height;   
   chrome.action.setBadgeText({ text: "REC" });
@@ -98,6 +178,7 @@ async function handleStartRecording(tabId, message) {
 function handleStopRecording() {
   isRecording = false;
   recordingTabId = null;
+  chrome.storage.local.set({ isRecording: false });
   chrome.action.setBadgeText({ text: "" });
   chrome.runtime.sendMessage({ type: 'STOP_OFFSCREEN_RECORDING' });
   chrome.tabs.query({}, (tabs) => {

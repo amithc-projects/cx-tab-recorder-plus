@@ -103,9 +103,10 @@ async function triggerScreenshotFromPopup(intent) {
 
   if (intent) {
     chrome.tabs.sendMessage(tab.id, { action: "GET_CROP_AND_HIDE_UI" }, (response) => {
+      const _ignored = chrome.runtime.lastError; // consume to avoid uncaught error
       setTimeout(() => {
-        chrome.tabs.captureVisibleTab(null, { format: "png" }, async (dataUrl) => {
-          if (!dataUrl) { restoreAndClose(tab.id); return; }
+        chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" }, async (dataUrl) => {
+          if (chrome.runtime.lastError || !dataUrl) { restoreAndClose(tab.id); return; }
 
           if (response && response.cropRect) {
             dataUrl = await cropImageLocal(dataUrl, response.cropRect, response.innerWidth);
@@ -314,7 +315,62 @@ async function applyBrandingToImage(dataUrl, tab) {
   });
 }
 
+const DB_NAME = "TabRecorderDB";
+const STORE_NAME = "Handles";
+function openDB() {
+  return new Promise((r, j) => {
+    let req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = e => req.result.createObjectStore(STORE_NAME);
+    req.onsuccess = () => r(req.result);
+    req.onerror = () => j(req.error);
+  });
+}
+async function saveHandle(handle) {
+  let db = await openDB();
+  return new Promise((r, j) => {
+    let tx = db.transaction(STORE_NAME, "readwrite");
+    tx.objectStore(STORE_NAME).put(handle, "saveDirectory");
+    tx.oncomplete = r;
+    tx.onerror = () => j(tx.error);
+  });
+}
+async function getHandle() {
+  let db = await openDB();
+  return new Promise((r, j) => {
+    let tx = db.transaction(STORE_NAME, "readonly");
+    let req = tx.objectStore(STORE_NAME).get("saveDirectory");
+    req.onsuccess = () => r(req.result);
+    req.onerror = () => j(req.error);
+  });
+}
+
 // Attach Action Listeners
+if (document.getElementById('btnPickFolder')) {
+  getHandle().then(handle => {
+    if (handle) {
+      document.getElementById('folderNameDisplay').innerText = `Root: ${handle.name}/`;
+    } else {
+      document.getElementById('folderNameDisplay').innerText = `⚠️ Required: Setup Local Save Path`;
+      document.getElementById('folderNameDisplay').style.color = '#F87171';
+      document.getElementById('btnPickFolder').style.background = '#2563EB';
+      document.getElementById('btnPickFolder').innerText = 'Grant Folder Permission';
+    }
+  }).catch(e=>{});
+  document.getElementById('btnPickFolder').addEventListener('click', async () => {
+    try {
+      const handle = await window.showDirectoryPicker({ id: "trp-out", mode: "readwrite" });
+      await saveHandle(handle);
+      document.getElementById('folderNameDisplay').innerText = `Root: ${handle.name}/`;
+      document.getElementById('folderNameDisplay').style.color = '#10B981';
+      document.getElementById('btnPickFolder').style.background = '#1F2937';
+      document.getElementById('btnPickFolder').innerText = 'Change Folder...';
+      chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+         if (tabs.length) chrome.tabs.sendMessage(tabs[0].id, { action: "SHOW_TOAST", message: "Folder Location Pinned! 📁" });
+      });
+    } catch(e) {}
+  });
+}
+
 if (document.getElementById('annotateBtn')) {
   document.getElementById('annotateBtn').addEventListener('click', triggerAnnotateFromPopup);
 }
@@ -353,7 +409,7 @@ if (document.getElementById('btnRecordScreen')) {
       }
     } catch (err) {
       if (tab) {
-        await chrome.scripting.executeScript({ target: {tabId: tab.id}, files: ['content-init.js', 'content-main.js', 'content-drawing.js'] });
+        await chrome.scripting.executeScript({ target: {tabId: tab.id}, files: ['content.js'] });
         await chrome.tabs.sendMessage(tab.id, { 
             action: "ARM_TIMER", 
             options: options
