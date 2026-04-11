@@ -479,10 +479,12 @@ async function performFullPageCapture(intent) {
   const snaps = [];
   const totalHeight = scrollEl.scrollHeight;
   const viewportHeight = scrollEl.clientHeight;
-  
+  const estimatedFrames = Math.max(1, Math.ceil(totalHeight / viewportHeight));
+  let frameIndex = 0;
+
   if (isWindow) window.scrollTo({ left: 0, top: 0, behavior: 'instant' });
   else scrollEl.scrollTop = 0;
-  
+
   let currentY = 0;
 
   while (true) {
@@ -498,6 +500,8 @@ async function performFullPageCapture(intent) {
       // Skip this frame rather than aborting the whole capture
       console.warn('TRP: frame skip at y=' + actualY);
     }
+    frameIndex++;
+    chrome.runtime.sendMessage({ type: 'CAPTURE_PROGRESS', phase: 'capturing', current: frameIndex, total: estimatedFrames });
 
     const nextY = actualY + viewportHeight;
     if (nextY >= totalHeight) break;
@@ -519,10 +523,13 @@ async function performFullPageCapture(intent) {
   else scrollEl.scrollTop = 0;
   
   restoreAfterCapture();
-  showToast("Stitching " + snaps.length + " images...");
 
-  let stitchedUrl = await stichImages(snaps, viewportHeight);
+  chrome.runtime.sendMessage({ type: 'CAPTURE_PROGRESS', phase: 'stitching', current: 0, total: snaps.length });
+  let stitchedUrl = await stichImages(snaps, viewportHeight, (current, total) => {
+    chrome.runtime.sendMessage({ type: 'CAPTURE_PROGRESS', phase: 'stitching', current, total });
+  });
   if (!stitchedUrl) {
+    chrome.runtime.sendMessage({ type: 'CAPTURE_PROGRESS', phase: 'error' });
     return showToast("⚠️ Capture Cancelled: No frames acquired.");
   }
   stitchedUrl = await applyBrandingToImage(stitchedUrl);
@@ -531,12 +538,12 @@ async function performFullPageCapture(intent) {
     await copyToClipboard(stitchedUrl);
   }
   if (intent === 'save' || intent === 'both') {
+    chrome.runtime.sendMessage({ type: 'CAPTURE_PROGRESS', phase: 'saving' });
     await downloadImage(stitchedUrl);
   }
 
+  // Toast only for copy-only intent — save intent shows progress in the popup
   if (intent === 'copy') showToast("Copied Full Page! ");
-  else if (intent === 'save') showToast("Saved Full Page! ");
-  else showToast("Saved & Copied Full Page!");
 
   } catch (err) {
     console.error("Full page capture error:", err);
@@ -546,7 +553,7 @@ async function performFullPageCapture(intent) {
   }
 }
 
-function stichImages(snaps, realViewportHeight) {
+function stichImages(snaps, realViewportHeight, onProgress) {
   return new Promise((resolve) => {
     if (!snaps || snaps.length === 0) return resolve(null);
     const canvas = document.createElement('canvas');
@@ -558,6 +565,7 @@ function stichImages(snaps, realViewportHeight) {
       const img = new Image();
       img.onload = () => {
         loadedCount++;
+        if (onProgress) onProgress(loadedCount, snaps.length);
         if (loadedCount === snaps.length) {
           images.sort((a,b) => a.actualY - b.actualY);
           

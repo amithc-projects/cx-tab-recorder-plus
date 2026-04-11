@@ -167,11 +167,19 @@
       </div>
     </div>
 
-    <!-- CAPTURING STATE (Full Page — popup stays alive to do FSA write) -->
-    <div id="capturingView" class="hidden" style="padding: 40px 16px; text-align: center;">
-      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" style="margin-bottom: 16px; animation: pulse 2s infinite;"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
-      <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px;">Capturing Full Page...</div>
-      <div style="font-size: 11px; color: #9CA3AF;">Keep this popup open until capture completes</div>
+    <!-- CAPTURING STATE — popup stays alive to show progress and do FSA write -->
+    <div id="capturingView" class="hidden" style="padding: 32px 20px 28px;">
+      <div style="display:flex; align-items:center; gap:14px; margin-bottom:20px;">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" style="flex-shrink:0; animation:pulse 1.5s ease-in-out infinite;" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+        <div>
+          <div id="capturePhaseLabel" style="font-size:14px; font-weight:600; color:#F9FAFB;">Capturing...</div>
+          <div id="capturePhaseDetail" style="font-size:11px; color:#9CA3AF; margin-top:3px;"></div>
+        </div>
+      </div>
+      <div id="captureProgressWrap" style="background:#1F2937; border-radius:4px; height:6px; overflow:hidden; margin-bottom:16px;">
+        <div id="captureProgressFill" style="background:#3B82F6; height:100%; width:0%; transition:width 0.25s ease;"></div>
+      </div>
+      <div style="font-size:10px; color:#6B7280; text-align:center;">Keep this popup open until complete</div>
     </div>
 
     <!-- RECORDING ACTIVE STATE -->

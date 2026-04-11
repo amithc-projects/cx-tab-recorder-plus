@@ -8,13 +8,26 @@ const viewRecord = document.getElementById('viewRecord');
 const tabRecord = document.getElementById('tabRecord');
 const tabCapture = document.getElementById('tabCapture');
 
-// Initialize State
-chrome.runtime.sendMessage({ action: "GET_STATUS" }, (response) => {
-  if (response && response.isRecording) {
-    showStopView();
-  } else {
-    showSetupView();
+// Check for a pending save result (set by background when offscreen completes a Capture Area save).
+// If present, show the "Saved!" done state briefly and close — no toast needed.
+chrome.storage.session.get('pendingCaptureResult', (result) => {
+  if (result && result.pendingCaptureResult === 'done') {
+    chrome.storage.session.remove('pendingCaptureResult');
+    setupView.classList.add('hidden');
+    document.getElementById('capturingView').classList.remove('hidden');
+    updateCaptureProgress({ phase: 'done' });
+    setTimeout(() => window.close(), 1200);
+    return; // skip normal init
   }
+
+  // Initialize State
+  chrome.runtime.sendMessage({ action: "GET_STATUS" }, (response) => {
+    if (response && response.isRecording) {
+      showStopView();
+    } else {
+      showSetupView();
+    }
+  });
 });
 
 // Tab Switching
@@ -172,6 +185,11 @@ async function triggerScreenshotFromPopup(intent) {
 
   await ensureContentScript(tab.id);
 
+  // Show progress view immediately
+  document.getElementById('setupView').classList.add('hidden');
+  document.getElementById('capturingView').classList.remove('hidden');
+  updateCaptureProgress({ phase: 'visible' });
+
   // Obtain FSA permission NOW while user activation is still valid (< 5s from click).
   let fsaHandle = null;
   if (intent === 'save' || intent === 'both') {
@@ -184,7 +202,11 @@ async function triggerScreenshotFromPopup(intent) {
       const _ignored = chrome.runtime.lastError;
       setTimeout(() => {
         chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" }, async (dataUrl) => {
-          if (chrome.runtime.lastError || !dataUrl) { restoreAndClose(tab.id); return; }
+          if (chrome.runtime.lastError || !dataUrl) {
+            chrome.tabs.sendMessage(tab.id, { action: "RESTORE_UI" }).catch(() => {});
+            window.close();
+            return;
+          }
 
           if (response && response.cropRect) {
             dataUrl = await cropImageLocal(dataUrl, response.cropRect, response.innerWidth);
@@ -193,15 +215,16 @@ async function triggerScreenshotFromPopup(intent) {
           dataUrl = await applyBrandingToImage(dataUrl, tab);
 
           if (intent === 'copy' || intent === 'both') {
+            updateCaptureProgress({ phase: 'copying' });
             try {
               const res = await fetch(dataUrl);
               const blob = await res.blob();
               await navigator.clipboard.write([ new ClipboardItem({ [blob.type]: blob }) ]);
-              if (intent === 'copy') chrome.tabs.sendMessage(tab.id, { action: "SHOW_TOAST", message: "Copied Window! 📋" });
             } catch (err) { console.error("Clipboard failed", err); }
           }
 
           if (intent === 'save' || intent === 'both') {
+            updateCaptureProgress({ phase: 'saving' });
             const filename = await generateFilename(tab);
             console.log('[TRP popup] save path: fsaHandle=', fsaHandle ? fsaHandle.name : 'null', 'filename=', filename);
             if (fsaHandle) {
@@ -214,14 +237,12 @@ async function triggerScreenshotFromPopup(intent) {
               console.log('[TRP popup] no fsaHandle, sending DOWNLOAD_FILE to background');
               chrome.runtime.sendMessage({ action: "DOWNLOAD_FILE", dataUrl, filename });
             }
-            if (intent === 'save') chrome.tabs.sendMessage(tab.id, { action: "SHOW_TOAST", message: "Saved Window! " });
           }
 
-          if (intent === 'both') {
-            chrome.tabs.sendMessage(tab.id, { action: "SHOW_TOAST", message: "Saved & Copied! " });
-          }
-
-          restoreAndClose(tab.id);
+          updateCaptureProgress({ phase: 'done' });
+          chrome.tabs.sendMessage(tab.id, { action: "RESTORE_UI" }).catch(() => {});
+          await new Promise(r => setTimeout(r, 600));
+          window.close();
         });
       }, 100);
     });
@@ -231,10 +252,6 @@ async function triggerScreenshotFromPopup(intent) {
   }
 }
 
-function restoreAndClose(tabId) {
-  chrome.tabs.sendMessage(tabId, { action: "RESTORE_UI" });
-  setTimeout(() => window.close(), 100);
-}
 
 function cropImageLocal(dataUrl, rect, tabWidth) {
   return new Promise((resolve) => {
@@ -281,6 +298,46 @@ async function triggerAnnotateFromPopup() {
   }
 }
 
+// Update the capturing progress UI. Called both from full-page capture (via runtime messages)
+// and from capture-visible (directly in popup).
+function updateCaptureProgress({ phase, current = 0, total = 0 }) {
+  const label = document.getElementById('capturePhaseLabel');
+  const detail = document.getElementById('capturePhaseDetail');
+  const fill = document.getElementById('captureProgressFill');
+  const wrap = document.getElementById('captureProgressWrap');
+  if (!label) return;
+
+  const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+
+  if (phase === 'capturing') {
+    label.textContent = 'Capturing frames...';
+    detail.textContent = total > 1 ? `Frame ${current} of ${total}` : '';
+    wrap.style.display = 'block';
+    fill.style.width = pct + '%';
+  } else if (phase === 'stitching') {
+    label.textContent = 'Stitching image...';
+    detail.textContent = total > 0 ? `${current} of ${total} frames loaded` : '';
+    wrap.style.display = 'block';
+    fill.style.width = pct + '%';
+  } else if (phase === 'saving') {
+    label.textContent = 'Saving...';
+    detail.textContent = 'Writing to folder';
+    wrap.style.display = 'none';
+  } else if (phase === 'done') {
+    label.textContent = 'Saved!';
+    detail.textContent = '';
+    wrap.style.display = 'none';
+  } else if (phase === 'copying') {
+    label.textContent = 'Copying to clipboard...';
+    detail.textContent = '';
+    wrap.style.display = 'none';
+  } else if (phase === 'visible') {
+    label.textContent = 'Capturing visible area...';
+    detail.textContent = '';
+    wrap.style.display = 'none';
+  }
+}
+
 // Full Tab Capture — for save intent, keep popup alive so it can write via FSA directly.
 // FSA permission is per-document in Chrome; the popup is the only context with permission.
 async function triggerFullTabCapture(intent) {
@@ -295,24 +352,34 @@ async function triggerFullTabCapture(intent) {
   console.log('[TRP popup] fullTab: fsaHandle=', fsaHandle ? fsaHandle.name : 'null');
 
   if (needsSave && fsaHandle) {
-    // Keep popup alive — show capturing state so user knows not to close it
+    // Keep popup alive — show progress UI
     document.getElementById('setupView').classList.add('hidden');
     document.getElementById('capturingView').classList.remove('hidden');
+    updateCaptureProgress({ phase: 'capturing', current: 0, total: 1 });
+
+    // Forward CAPTURE_PROGRESS messages from content script to the UI
+    function onProgress(msg) {
+      if (msg.type === 'CAPTURE_PROGRESS') updateCaptureProgress(msg);
+    }
+    chrome.runtime.onMessage.addListener(onProgress);
 
     // Listen for background signalling that the blob is ready in IDB
     chrome.runtime.onMessage.addListener(function onCaptureReady(msg, sender, sendResponse) {
       if (msg.type !== 'FULL_PAGE_CAPTURE_READY') return;
       chrome.runtime.onMessage.removeListener(onCaptureReady);
+      chrome.runtime.onMessage.removeListener(onProgress);
       // Tell background synchronously that popup is handling it (prevents fallback)
       sendResponse({ handled: true });
 
       (async () => {
+        updateCaptureProgress({ phase: 'saving' });
         const blob = await getScreenshotBlob(msg.key).catch(() => null);
         if (blob) {
           const ok = await writeFSAFromBlob(fsaHandle, blob, msg.filename);
           if (ok) {
             await deleteScreenshotBlob(msg.key).catch(() => {});
-            chrome.tabs.sendMessage(tab.id, { action: "SHOW_TOAST", message: "Saved Folder! " }).catch(() => {});
+            updateCaptureProgress({ phase: 'done' });
+            await new Promise(r => setTimeout(r, 600));
           } else {
             // Blob stays in IDB; tell background to fall back to Downloads
             chrome.runtime.sendMessage({ action: 'SAVE_SCREENSHOT_FALLBACK', key: msg.key, filename: msg.filename, tabId: tab.id });

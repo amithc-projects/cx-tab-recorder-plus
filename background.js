@@ -164,9 +164,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     })();
     return true;
   }
-  else if (message.action === "RELAY_TOAST") {
-    // Offscreen cannot use chrome.tabs — relay toasts through background instead.
-    chrome.tabs.sendMessage(message.tabId, { action: "SHOW_TOAST", message: message.message }).catch(() => {});
+  else if (message.action === "CAPTURE_SAVE_DONE") {
+    // Offscreen completed a save. Reopen popup to show "Saved!" done state in the progress UI.
+    (async () => {
+      try {
+        await chrome.storage.session.set({ pendingCaptureResult: 'done' });
+        await chrome.action.openPopup();
+      } catch (e) {
+        // chrome.action.openPopup() requires Chrome 127+; silently skip on older builds
+        console.log('[TRP bg] openPopup unavailable:', e.message);
+        chrome.storage.session.remove('pendingCaptureResult');
+      }
+    })();
   }
   else if (message.action === "FSA_FAILED_FALLBACK") {
       console.warn('[TRP bg] FSA_FAILED_FALLBACK error=', message.error, 'filename=', message.filename);

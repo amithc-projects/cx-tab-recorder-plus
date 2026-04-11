@@ -97,9 +97,9 @@ async function processNativeDownload(dataUrl, filename, tabId) {
     chrome.runtime.sendMessage({ action: "FSA_FAILED_FALLBACK", dataUrl: dataUrl, filename: filename, error: err.message });
   }
 
-  // chrome.tabs is not available in offscreen — route the toast through background.
-  if (savedOk && tabId) {
-    chrome.runtime.sendMessage({ action: "RELAY_TOAST", tabId: tabId, message: "Saved Folder! " });
+  // Reopen the popup to show the "Saved!" done state (no toast).
+  if (savedOk) {
+    chrome.runtime.sendMessage({ action: "CAPTURE_SAVE_DONE" });
   }
 }
 
@@ -156,8 +156,8 @@ async function processScreenshotFromIDB(key, filename, tabId) {
     chrome.runtime.sendMessage({ action: "FSA_FAILED_FALLBACK", dataUrl: null, filename, error: err.message });
   }
 
-  if (savedOk && tabId) {
-    chrome.runtime.sendMessage({ action: "RELAY_TOAST", tabId, message: "Saved Folder! " });
+  if (savedOk) {
+    chrome.runtime.sendMessage({ action: "CAPTURE_SAVE_DONE" });
   }
 }
 
