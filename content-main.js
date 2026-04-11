@@ -373,9 +373,9 @@ async function performFullPageCapture(intent) {
     chrome.runtime.sendMessage({ action: "DOWNLOAD_FILE", dataUrl: stitchedUrl, filename: filename });
   }
   
-  if (intent === 'copy') showToast("Copied Full Page! 📋");
-  else if (intent === 'save') showToast("Saved Full Page! 💾");
-  else showToast("Saved & Copied Full Page! 💾📋");
+  if (intent === 'copy') showToast("Copied Full Page! ");
+  else if (intent === 'save') showToast("Saved Full Page! ");
+  else showToast("Saved & Copied Full Page! ");
   
   window.isTabRecorderCapturing = false;
 }

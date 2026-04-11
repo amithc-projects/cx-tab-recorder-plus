@@ -73,7 +73,7 @@ async function processNativeDownload(dataUrl, filename, tabId) {
 
   // chrome.tabs is not available in offscreen — route the toast through background.
   if (savedOk && tabId) {
-    chrome.runtime.sendMessage({ action: "RELAY_TOAST", tabId: tabId, message: "Saved! 🗂️" });
+    chrome.runtime.sendMessage({ action: "RELAY_TOAST", tabId: tabId, message: "Saved Folder! " });
   }
 }
 

@@ -350,30 +350,67 @@ async function copyToClipboard(dataUrl) {
   } catch (err) { console.error("Copy failed", err); }
 }
 
+const _trpToasts = []; // active toast elements, bottom-to-top order
+
 function showToast(message) {
+  const TOAST_HEIGHT = 56; // approximate px per toast slot
+  const GAP = 8;
+  const MARGIN_TOP = 24;
+
   const t = document.createElement('div');
-  t.textContent = message;
+  // Strip emoji that render as mojibake on some sites and replace with text equivalents
+  const safeMessage = message
+    .replace(/📋/g, '[Copy]')
+    .replace(/💾/g, '[Save]')
+    .replace(/🗂️/g, '[Save]')
+    .replace(/⚠️/g, '[!]')
+    .replace(/📁/g, '[Folder]');
+
+  t.textContent = safeMessage;
+
+  const slot = _trpToasts.length; // stack position (0 = topmost)
+  const topPx = MARGIN_TOP + slot * (TOAST_HEIGHT + GAP);
+
   Object.assign(t.style, {
-    position: 'fixed', top: '24px', right: '-350px',
-    background: 'linear-gradient(135deg, #6366f1, #a855f7, #ec4899)', color: '#fff', 
-    padding: '16px 28px', borderRadius: '12px',
-    boxShadow: '0 10px 30px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.2) inset', 
-    zIndex: '2147483647', fontWeight: 'bold', letterSpacing: '0.5px',
-    fontFamily: 'system-ui, -apple-system, sans-serif', fontSize: '15px', 
-    transition: 'all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+    all: 'initial',
+    position: 'fixed',
+    top: topPx + 'px',
+    right: '-400px',
+    background: 'linear-gradient(135deg, #6366f1, #a855f7, #ec4899)',
+    color: '#fff',
+    padding: '12px 20px',
+    borderRadius: '10px',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+    zIndex: '2147483647',
+    fontWeight: 'bold',
+    fontFamily: '"Segoe UI", system-ui, -apple-system, Arial, sans-serif',
+    fontSize: '14px',
+    lineHeight: '1.4',
+    whiteSpace: 'nowrap',
+    transition: 'right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.4s ease',
+    pointerEvents: 'none',
+    boxSizing: 'border-box'
   });
+
   document.body.appendChild(t);
-  
-  // Animate In
-  requestAnimationFrame(() => {
-    setTimeout(() => { t.style.right = '24px'; }, 50);
-  });
-  
-  // Animate Out
-  setTimeout(() => { 
-    t.style.right = '-350px'; 
-    t.style.opacity = '0'; 
-    setTimeout(() => t.remove(), 500); 
+  _trpToasts.push(t);
+
+  // Animate in
+  requestAnimationFrame(() => setTimeout(() => { t.style.right = '24px'; }, 30));
+
+  // Animate out after 3 s
+  setTimeout(() => {
+    t.style.right = '-400px';
+    t.style.opacity = '0';
+    setTimeout(() => {
+      t.remove();
+      const idx = _trpToasts.indexOf(t);
+      if (idx !== -1) _trpToasts.splice(idx, 1);
+      // Shift remaining toasts up
+      _trpToasts.forEach((el, i) => {
+        el.style.top = (MARGIN_TOP + i * (TOAST_HEIGHT + GAP)) + 'px';
+      });
+    }, 420);
   }, 3000);
 }
 
@@ -488,9 +525,9 @@ async function performFullPageCapture(intent) {
     chrome.runtime.sendMessage({ action: "DOWNLOAD_FILE", dataUrl: stitchedUrl, filename: filename });
   }
 
-  if (intent === 'copy') showToast("Copied Full Page! 📋");
-  else if (intent === 'save') showToast("Saved Full Page! 💾");
-  else showToast("Saved & Copied Full Page! 💾📋");
+  if (intent === 'copy') showToast("Copied Full Page! ");
+  else if (intent === 'save') showToast("Saved Full Page! ");
+  else showToast("Saved & Copied Full Page!");
 
   } catch (err) {
     console.error("Full page capture error:", err);
@@ -648,30 +685,45 @@ function createToolbar() {
       pointer-events: auto; align-items: center; font-family: 'Inter', system-ui, sans-serif;
       animation: trp-toolbar-enter 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
     }
-    .trp-branding { display: flex; align-items: center; gap: 8px; padding: 0 8px 0 4px; cursor: default; }
-    .trp-branding svg { width: 20px; height: 20px; }
-    .trp-brand-text { font-size: 13px; font-weight: 700; color: #E5E7EB; white-space: nowrap; letter-spacing: -0.2px; }
-    
+    .trp-branding { display: flex !important; align-items: center !important; gap: 8px !important; padding: 0 8px 0 4px !important; cursor: default !important; flex-shrink: 0 !important; }
+    .trp-branding svg { width: 20px !important; height: 20px !important; display: block !important; overflow: visible !important; }
+    .trp-brand-text { font-size: 13px !important; font-weight: 700 !important; color: #E5E7EB !important; white-space: nowrap !important; letter-spacing: -0.2px !important; line-height: 1 !important; }
+
     #trp-toolbar .divider {
-      width: 1px; height: 20px; background: rgba(255,255,255,0.15); margin: 0 4px;
+      width: 1px !important; height: 20px !important; background: rgba(255,255,255,0.15) !important; margin: 0 4px !important; flex-shrink: 0 !important;
+    }
+    #trp-toolbar * {
+      box-sizing: border-box !important;
+      line-height: normal !important;
+      font-size: unset !important;
+      max-width: none !important;
+      max-height: none !important;
     }
     #trp-toolbar button {
-      background: transparent; border: none; cursor: pointer; border-radius: 8px;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); color: #9CA3AF !important; 
-      display: flex; align-items: center; justify-content: center; width: 36px; height: 36px;
+      all: unset !important;
+      background: transparent !important; border: none !important; cursor: pointer !important; border-radius: 8px !important;
+      transition: background 0.2s, color 0.2s !important; color: #9CA3AF !important;
+      display: flex !important; align-items: center !important; justify-content: center !important;
+      width: 36px !important; height: 36px !important; flex-shrink: 0 !important;
     }
-    #trp-toolbar button:hover { background: rgba(255,255,255,0.1); color: #F3F4F6 !important; }
-    #trp-toolbar button.active { background: #2563EB !important; color: #FFFFFF !important; box-shadow: 0 2px 10px rgba(37,99,235,0.4); }
-    #trp-toolbar button svg { width: 18px; height: 18px; }
-    
+    #trp-toolbar button:hover { background: rgba(255,255,255,0.1) !important; color: #F3F4F6 !important; }
+    #trp-toolbar button.active { background: #2563EB !important; color: #FFFFFF !important; box-shadow: 0 2px 10px rgba(37,99,235,0.4) !important; }
+    #trp-toolbar button svg {
+      width: 18px !important; height: 18px !important;
+      display: block !important; flex-shrink: 0 !important;
+      overflow: visible !important; vertical-align: unset !important;
+    }
+
     #btn-clear:hover { background: rgba(248,113,113,0.15) !important; color: #EF4444 !important; }
-    
+
     .color-picker-wrap {
-      position: relative; width: 36px; height: 36px; display: flex; flex-direction: column; align-items: center; justify-content: center;
-      border-radius: 8px; cursor: pointer; transition: 0.2s; margin: 0 2px; color: #9CA3AF;
+      position: relative !important; width: 36px !important; height: 36px !important;
+      display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: center !important;
+      border-radius: 8px !important; cursor: pointer !important; transition: background 0.2s !important;
+      margin: 0 2px !important; color: #9CA3AF !important; flex-shrink: 0 !important;
     }
-    .color-picker-wrap:hover { background: rgba(255,255,255,0.1); color: #F3F4F6; }
-    .color-picker-wrap svg { width: 16px; height: 16px; margin-bottom: 2px; pointer-events: none; }
+    .color-picker-wrap:hover { background: rgba(255,255,255,0.1) !important; color: #F3F4F6 !important; }
+    .color-picker-wrap svg { width: 16px !important; height: 16px !important; margin-bottom: 2px !important; pointer-events: none !important; display: block !important; overflow: visible !important; }
     .color-indicator-bar { width: 16px; height: 3px; border-radius: 1.5px; pointer-events: none; }
     #inp-color { position: absolute; opacity: 0; width: 100%; height: 100%; cursor: pointer; top:0; left:0; }
     

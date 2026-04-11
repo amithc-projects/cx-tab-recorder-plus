@@ -207,11 +207,11 @@ async function triggerScreenshotFromPopup(intent) {
               console.log('[TRP popup] no fsaHandle, sending DOWNLOAD_FILE to background');
               chrome.runtime.sendMessage({ action: "DOWNLOAD_FILE", dataUrl, filename });
             }
-            if (intent === 'save') chrome.tabs.sendMessage(tab.id, { action: "SHOW_TOAST", message: "Saved Window! 💾" });
+            if (intent === 'save') chrome.tabs.sendMessage(tab.id, { action: "SHOW_TOAST", message: "Saved Window! " });
           }
 
           if (intent === 'both') {
-            chrome.tabs.sendMessage(tab.id, { action: "SHOW_TOAST", message: "Saved & Copied! 💾📋" });
+            chrome.tabs.sendMessage(tab.id, { action: "SHOW_TOAST", message: "Saved & Copied! " });
           }
 
           restoreAndClose(tab.id);
