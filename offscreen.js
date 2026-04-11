@@ -43,6 +43,15 @@ async function deleteBlobFromIDB(key) {
     tx.onerror = () => j(tx.error);
   });
 }
+async function storeBlobInIDB(key, blob) {
+  let db = await openDB();
+  return new Promise((r, j) => {
+    let tx = db.transaction(SCREENSHOTS_STORE, "readwrite");
+    tx.objectStore(SCREENSHOTS_STORE).put(blob, key);
+    tx.oncomplete = r;
+    tx.onerror = () => j(tx.error);
+  });
+}
 
 let mediaRecorder;
 let recordedChunks = [];
@@ -57,6 +66,8 @@ chrome.runtime.onMessage.addListener(async (message) => {
     processNativeDownload(message.dataUrl, message.filename, message.tabId);
   } else if (message.type === 'PROCESS_SCREENSHOT_FROM_IDB') {
     processScreenshotFromIDB(message.key, message.filename, message.tabId);
+  } else if (message.type === 'PROCESS_RECORDING_FROM_IDB') {
+    processRecordingFromIDB(message.key, message.filename, message.fallbackUrl);
   }
 });
 
@@ -161,6 +172,51 @@ async function processScreenshotFromIDB(key, filename, tabId) {
   }
 }
 
+async function processRecordingFromIDB(key, filename, fallbackUrl) {
+  console.log('[TRP offscreen] processRecordingFromIDB key=', key, 'filename=', filename);
+  let savedOk = false;
+  try {
+    const blob = await getBlobFromIDB(key);
+    if (!blob) throw new Error('Recording blob not found in IDB: ' + key);
+    console.log('[TRP offscreen] recording blob size=', blob.size);
+
+    const handle = await getHandle().catch((e) => { console.warn('[TRP offscreen] getHandle error:', e); return null; });
+    console.log('[TRP offscreen] handle=', handle ? handle.name : 'null');
+    if (!handle) throw new Error('No configured save folder');
+
+    let permState = await handle.queryPermission({ mode: 'readwrite' });
+    console.log('[TRP offscreen] queryPermission=', permState);
+    if (permState !== 'granted') {
+      permState = await handle.requestPermission({ mode: 'readwrite' }).catch((e) => { console.warn('[TRP offscreen] requestPermission threw:', e); return 'denied'; });
+      console.log('[TRP offscreen] requestPermission result=', permState);
+    }
+    if (permState !== 'granted') throw new Error('Permission denied: ' + permState);
+
+    const parts = filename.split('/');
+    const leaf = parts.pop();
+    let dir = handle;
+    for (const p of parts) dir = await dir.getDirectoryHandle(p, { create: true });
+    const fileHandle = await dir.getFileHandle(leaf, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    console.log('[TRP offscreen] recording FSA write SUCCESS');
+    savedOk = true;
+    await deleteBlobFromIDB(key).catch(() => {});
+  } catch(err) {
+    console.warn('[TRP offscreen] recording FSA failed, falling back to downloads. error=', err.message);
+    // fallbackUrl is already a blob URL created in this offscreen context — use it directly
+    if (fallbackUrl) {
+      chrome.runtime.sendMessage({ action: 'DOWNLOAD_RECORDING', fallbackUrl, filename });
+    }
+    await deleteBlobFromIDB(key).catch(() => {});
+  }
+
+  if (savedOk) {
+    chrome.runtime.sendMessage({ action: 'CAPTURE_SAVE_DONE' });
+  }
+}
+
 async function startRecording(data) {
   const streamId = data.streamId;
   const width = data.width || 1920;
@@ -198,20 +254,20 @@ async function startRecording(data) {
 
 function stopRecording() {
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.onstop = () => {
+    mediaRecorder.onstop = async () => {
       const blob = new Blob(recordedChunks, { type: 'video/webm' });
-      const url = URL.createObjectURL(blob);
-      
-      // ACTION: Send the URL to background.js
-      // We do NOT try to download here anymore.
-      chrome.runtime.sendMessage({ 
-        type: 'RECORDING_FINISHED', 
-        url: url 
-      });
+      const filename = `recording-${Date.now()}.webm`;
+      const key = 'recording-' + Date.now();
+      // Always create object URL here (service workers can't use URL.createObjectURL)
+      const fallbackUrl = URL.createObjectURL(blob);
+      try {
+        await storeBlobInIDB(key, blob);
+        chrome.runtime.sendMessage({ type: 'RECORDING_FINISHED', key, filename, fallbackUrl });
+      } catch(e) {
+        chrome.runtime.sendMessage({ type: 'RECORDING_FINISHED', fallbackUrl, filename });
+      }
     };
     mediaRecorder.stop();
-    
-    // Stop tracks
     mediaRecorder.stream.getTracks().forEach(t => t.stop());
   }
 }

@@ -370,6 +370,10 @@ function updateCaptureProgress({ phase, current = 0, total = 0 }) {
     label.textContent = 'Capturing visible area...';
     detail.textContent = '';
     wrap.style.display = 'none';
+  } else if (phase === 'stopping') {
+    label.textContent = 'Finalising recording...';
+    detail.textContent = '';
+    wrap.style.display = 'none';
   }
 }
 

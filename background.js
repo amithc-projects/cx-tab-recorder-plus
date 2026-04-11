@@ -50,6 +50,15 @@ async function deleteFromExtDB(key) {
     tx.onerror = () => { db.close(); j(tx.error); };
   });
 }
+async function getBlobFromExtDB(key) {
+  const db = await openExtDB();
+  return new Promise((r, j) => {
+    const tx = db.transaction('Screenshots', 'readonly');
+    const req = tx.objectStore('Screenshots').get(key);
+    req.onsuccess = () => { db.close(); r(req.result); };
+    req.onerror = () => { db.close(); j(req.error); };
+  });
+}
 async function getHandleFromExtDB() {
   const db = await openExtDB();
   return new Promise((r, j) => {
@@ -99,6 +108,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true });
   } 
   else if (message.action === "STOP_RECORDING") {
+    console.log('[TRP bg] STOP_RECORDING');
     handleStopRecording();
     sendResponse({ success: true });
   }
@@ -111,7 +121,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   else if (message.type === "RECORDING_FINISHED") {
-    downloadRecording(message.url);
+    chrome.storage.local.get(['pendingRecordingFilename'], (result) => {
+      const filename = result.pendingRecordingFilename || message.filename;
+      chrome.storage.local.remove('pendingRecordingFilename');
+      console.log('[TRP bg] RECORDING_FINISHED key=', message.key, 'filename=', filename, 'hasFallbackUrl=', !!message.fallbackUrl);
+      if (message.key) {
+        // Route through offscreen for FSA save (same path as area captures)
+        chrome.runtime.sendMessage({
+          type: 'PROCESS_RECORDING_FROM_IDB',
+          key: message.key,
+          filename,
+          fallbackUrl: message.fallbackUrl
+        });
+      } else {
+        // IDB storage failed — use fallback URL directly
+        downloadRecording(message.fallbackUrl, filename);
+      }
+    });
+    return true;
+  }
+  else if (message.action === "DOWNLOAD_RECORDING") {
+    downloadRecording(message.fallbackUrl, message.filename);
   }
   else if (message.action === "SAVE_SCREENSHOT") {
     (async () => {
@@ -372,8 +402,47 @@ function takeScreenshot(download = true, sendResponse = null, windowId = null, a
   });
 }
 
-// ... (Rest of file: handleStartRecording, handleStopRecording, downloadRecording) ...
-// (Ensure you keep the existing functions below this line)
+function resolveRecordingFilename(str, tab) {
+  if (!str) return str;
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const sanitize = (s) => String(s).replace(/[^a-zA-Z0-9.\-_]/g, '_').substring(0, 80);
+  const year      = String(d.getFullYear());
+  const month     = pad(d.getMonth() + 1);
+  const day       = pad(d.getDate());
+  const hour      = pad(d.getHours());
+  const minute    = pad(d.getMinutes());
+  const second    = pad(d.getSeconds());
+  const timestamp = `${year}${month}${day}_${hour}${minute}${second}`;
+  const url    = tab && tab.url   ? tab.url   : 'unknown';
+  const title  = tab && tab.title ? tab.title : 'Recording';
+  let domain = 'unknown', path = '', hash = '';
+  const pathParts = [];
+  try {
+    const u = new URL(url);
+    domain = u.hostname;
+    u.pathname.split('/').filter(Boolean).forEach(p => pathParts.push(p));
+    path = pathParts.map(sanitize).join('/');
+    hash = sanitize((u.hash || '').replace(/^#/, ''));
+  } catch (e) {}
+  let res = str;
+  res = res.replace(/{{\s*timestamp\s*}}/g, timestamp);
+  res = res.replace(/{{\s*year\s*}}/g,      year);
+  res = res.replace(/{{\s*month\s*}}/g,     month);
+  res = res.replace(/{{\s*day\s*}}/g,       day);
+  res = res.replace(/{{\s*hour\s*}}/g,      hour);
+  res = res.replace(/{{\s*minute\s*}}/g,    minute);
+  res = res.replace(/{{\s*second\s*}}/g,    second);
+  res = res.replace(/{{\s*domain\s*}}/g,    sanitize(domain));
+  res = res.replace(/{{\s*path\s*}}/g,      path);
+  res = res.replace(/{{\s*path:(\d+)\s*}}/g, (_, n) => sanitize(pathParts[parseInt(n, 10) - 1] || ''));
+  res = res.replace(/{{\s*hash\s*}}/g,      hash);
+  res = res.replace(/{{\s*tab\.title\s*}}/g, sanitize(title));
+  res = res.replace(/{{\s*tab\.url\s*}}/g,   sanitize(url.substring(0, 80)));
+  res = res.replace(/{{\s*(?:dom|meta|cookie|localStorage):[^}]+\s*}}/g, '');
+  return res;
+}
+
 async function handleStartRecording(tabId, message) {
   recordingTabId = tabId;
   isRecording = true;
@@ -396,6 +465,16 @@ async function handleStartRecording(tabId, message) {
     type: 'START_OFFSCREEN_RECORDING',
     data: { streamId, options: message.options, width, height }
   });
+
+  // Generate and persist the recording filename now (tab context is available, SW-restart safe)
+  chrome.tabs.get(tabId, (tab) => {
+    chrome.storage.local.get(['saveFileFormat'], (result) => {
+      const format = result.saveFileFormat || '{{domain}}/{{timestamp}}-{{tab.title}}.png';
+      const filename = resolveRecordingFilename(format, tab).replace(/\.png$/i, '.webm');
+      chrome.storage.local.set({ pendingRecordingFilename: filename });
+      console.log('[TRP bg] recording filename set:', filename);
+    });
+  });
 }
 
 function handleStopRecording() {
@@ -412,11 +491,12 @@ function handleStopRecording() {
   chrome.storage.local.remove('timerState');
 }
 
-function downloadRecording(url) {
+function downloadRecording(url, filename) {
+  const dlFilename = filename || `recording-${Date.now()}.webm`;
   chrome.downloads.download({
     url: url,
-    filename: `recording-${Date.now()}.webm`,
-    saveAs: true 
+    filename: dlFilename,
+    saveAs: true
   }, (downloadId) => {
     if (chrome.runtime.lastError) {
       chrome.offscreen.closeDocument().catch(() => {});
@@ -433,3 +513,4 @@ function downloadRecording(url) {
     }
   });
 }
+
