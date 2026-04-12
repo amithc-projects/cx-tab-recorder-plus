@@ -1,51 +1,104 @@
 # Tab Recorder Plus
 
-Tab Recorder Plus is a feature-rich Google Chrome extension that allows you to seamlessly record your browser tabs, annotate over your screen, capture and crop screenshots, and merge video recordings together.
+Tab Recorder Plus is a feature-rich Google Chrome extension for recording browser tabs, capturing screenshots, annotating over pages, and batch-capturing multiple URLs or open tabs at multiple resolutions.
 
 ## Features
 
-- **Video Recording**: Record activity on your active browser tab, saved automatically as a `.webm` file. Highlights mouse clicks and features a customizable on-screen recording timer.
-- **Annotation Tools**: Draw on the screen using tools like pen, rectangle, ellipse, and text. Features custom color selection, undo/redo functionality, and an intuitive toolbar.
-- **Screenshot & Crop**: Capture screenshots and quickly copy them to your clipboard or download them. Includes a crop tool to capture only the specific areas you need.
-- **Video Merger**: A built-in utility to merge multiple video recordings together.
-- **Visual Feedback**: Choose to display a click ripple animation and place the recording timer anywhere on the screen.
+### Screenshot Capture
+- **Capture Entire Page**: Scroll-and-stitch full-page capture — captures everything below the fold.
+- **Capture Visible**: Snap the current viewport as-is.
+- **Capture Region**: Draw a selection rectangle to capture only a specific area.
+- **Annotate then Capture**: Draw arrows, shapes, and text on the page before saving.
+
+### Batch Capture
+- **URL Sets**: Define named lists of URLs in Settings. One click navigates to each URL in sequence and captures it, saving one file per URL. Supports full-page and visible modes.
+- **Capture View from Open Tabs**: Capture the current viewport of every already-open tab — by whole window, by tab group, or filtered by URL pattern. No navigation, no tab reloading; uses Chrome DevTools Protocol to screenshot each tab without switching focus.
+
+### Resolution Sets
+Define named collections of viewport sizes (e.g. Desktop/Tablet/Mobile). Attach a Resolution Set to a URL Set or Open Tabs capture to automatically capture each URL/tab at every defined size, saving a separate file per size with a `_WxH` filename suffix.
+
+### Pre-Capture Rules
+Define CSS rules (e.g. `display: none`) applied to matching selectors immediately before a capture and undone immediately after. Use this to hide cookie banners, chat widgets, or other overlays that shouldn't appear in screenshots.
+
+### Save Directory & Filenames
+- Pick a local folder via the File System Access API — all captures save there automatically without a download prompt.
+- Configurable filename format using tokens: `{{domain}}`, `{{title}}`, `{{date}}`, `{{time}}`, `{{width}}`, `{{height}}`, `{{tab.group}}`, and more.
+- Companion `.json` sidecar files saved alongside each image containing URL, title, capture type, resolution, and timestamp.
+
+### Branding Overlay
+Optionally composite a custom logo PNG onto every screenshot at a configurable position and opacity.
+
+### Video Recording
+- Record the active tab as a `.webm` file with optional on-screen timer and click-highlight ripple effects.
+- Configurable timer position (top/bottom, left/centre/right).
+- Built-in **Video Merger** utility to merge multiple recordings side-by-side or sequentially.
+
+### Annotation Tools
+Draw on any page using pen, rectangle, ellipse, and text tools with custom colour selection and full undo/redo.
+
+---
 
 ## Installation
 
-1. Clone or download this repository to your local machine.
-2. Open Google Chrome and navigate to the extensions page: `chrome://extensions/`.
-3. Enable **Developer mode** using the toggle in the top right corner.
-4. Click on the **Load unpacked** button and select the `cx-tab-recorder-plus` directory.
+1. Clone or download this repository.
+2. Open Chrome and go to `chrome://extensions/`.
+3. Enable **Developer mode** (top-right toggle).
+4. Click **Load unpacked** and select the `cx-tab-recorder-plus` directory.
+
+---
 
 ## Usage & Keyboard Shortcuts
 
-Tab Recorder Plus makes use of several handy keyboard shortcuts to help you work faster, without always needing to open the popup.
-
 ### Global Shortcuts
-*   **Open Recorder Popup**: `Alt+Shift+Q` (Mac: `Option+Shift+Q`)
-*   **Stop Recording**: `Ctrl+Shift+S` (Mac: `Command+Shift+S`)
-*   **Toggle Annotation Mode**: `Alt+Shift+A`
-*   **Save Screenshot**: `Ctrl+Shift+E`
+| Shortcut | Action |
+|---|---|
+| `Alt+Shift+Q` (Mac: `Option+Shift+Q`) | Open extension popup |
+| `Ctrl+Shift+S` (Mac: `Cmd+Shift+S`) | Stop recording |
+| `Alt+Shift+A` | Toggle annotation mode |
+| `Ctrl+Shift+E` | Save full-page screenshot |
 
-*(You can customize these shortcuts underneath `chrome://extensions/shortcuts`)*
+*(Customisable at `chrome://extensions/shortcuts`)*
 
-### Popup Shortcuts
-When the extension popup is open, you can simply press:
-*   `R` - Start Recording
-*   `A` - Start Annotating
-*   `S` - Save a Screenshot 
-*   `C` - Capture and Copy to Clipboard
+### Popup Shortcuts (while popup is open)
+| Key | Action |
+|---|---|
+| `E` | Capture Entire Page |
+| `V` | Capture Visible |
+| `R` | Capture Region |
+| `A` | Annotate |
 
-### Annotation Shortcuts
-When the annotation toolbar is active on the page:
-*   **Undo**: `Ctrl+Z`
-*   **Redo**: `Ctrl+Y`
-*   **Exit / Hide**: `Escape`
+### Annotation Shortcuts (while toolbar is active)
+| Shortcut | Action |
+|---|---|
+| `Ctrl+Z` | Undo |
+| `Ctrl+Y` | Redo |
+| `Escape` | Exit / hide toolbar |
 
-## Permissions Overview
+---
 
-- `activeTab` & `tabCapture`: Required to record the current tab's video and audio.
-- `scripting`: Required to inject annotation and screenshot functionalities directly into the active webpage.
-- `storage`: Saves user preferences (e.g., timer toggle, timer position).
-- `offscreen`: Used to handle background video recording reliably in Chrome Manifest V3.
-- `downloads`: Allows the extension to seamlessly save merged videos and screenshots to your computer.
+## Settings
+
+Open Settings via the gear icon in the popup.
+
+| Section | Description |
+|---|---|
+| **Save Directory** | Pick a folder for automatic saving; configure filename format tokens |
+| **Branding** | Upload a logo PNG, set position and opacity |
+| **URL Sets** | Create/edit named URL lists; optionally assign a Resolution Set; import from open tabs or tab groups |
+| **Resolution Sets** | Define named viewport-size collections for multi-resolution batch capture |
+| **Pre-Capture Rules** | CSS selector + property rules applied before each capture |
+
+---
+
+## Permissions
+
+| Permission | Purpose |
+|---|---|
+| `activeTab`, `tabs` | Read tab URLs/titles; capture visible tab |
+| `tabGroups` | Enumerate tab groups for group-scoped capture |
+| `tabCapture`, `desktopCapture` | Record tab video |
+| `scripting` | Inject annotation, capture, and pre-capture-rule scripts |
+| `debugger` | Viewport size emulation (Resolution Sets) and CDP screenshot for open-tab capture |
+| `storage` | Persist user preferences |
+| `offscreen` | Background video recording (MV3 requirement) |
+| `downloads` | Fallback file saving when FSA folder is not configured |
