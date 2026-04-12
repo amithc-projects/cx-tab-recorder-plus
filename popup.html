@@ -55,6 +55,8 @@
       .batch-tab.active { color: #3B82F6; border-bottom-color: #3B82F6; }
       .batch-tab:hover:not(.active) { color: #9CA3AF; }
       .batch-panel { padding: 10px 0 4px; }
+      .capture-trigger { background: #1D4ED8; color: #fff; border: none; border-radius: 6px; padding: 6px 12px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: background 0.15s; }
+      .capture-trigger:hover { background: #2563EB; }
 
       /* BIG BUTTONS */
       #btnRecordScreen { background: #DC2626; justify-content: center; margin-top: 20px; }
@@ -151,30 +153,24 @@
 
         <!-- Pre-defined Sets panel -->
         <div id="batchPanelSets" class="batch-panel">
-          <div style="font-size:11px; color:#9CA3AF; margin-bottom:8px;">Navigate to each URL in a saved set and capture in sequence.</div>
           <!-- Empty state -->
-          <div id="noUrlSetsMsg" style="font-size:11px; color:#6B7280; padding:8px 0;">No URL sets defined yet.</div>
+          <div id="noUrlSetsMsg" style="font-size:11px; color:#6B7280; padding:4px 0 8px;">
+            No URL sets defined yet.
+          </div>
           <!-- Populated state -->
           <div id="urlSetContent" class="hidden">
-            <select id="urlSetSelect" class="styled-select" style="width:100%; margin-bottom:8px;"></select>
-            <div class="action-card" id="captureSetBtn" style="margin-bottom:8px;">
-              <div class="action-icon" style="background:#1F2937; color:#3B82F6;">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
-              </div>
-              <div class="action-text">
-                <div class="action-title">Capture URL Set</div>
-                <div class="action-desc">Navigate &amp; capture all URLs in set</div>
-              </div>
+            <div style="display:flex; gap:6px; align-items:center; margin-bottom:8px;">
+              <select id="urlSetSelect" class="styled-select" style="flex:1; min-width:0;"></select>
+              <button class="capture-trigger" id="captureSetBtn">Capture</button>
             </div>
           </div>
-          <div style="text-align:right; margin-bottom:4px;">
+          <div style="text-align:right;">
             <span id="linkToUrlSets" style="font-size:10px; color:#3B82F6; cursor:pointer;">Manage URL sets in Settings →</span>
           </div>
         </div>
 
         <!-- Open Tabs panel -->
         <div id="batchPanelOpenTabs" class="batch-panel hidden">
-          <div style="font-size:11px; color:#9CA3AF; margin-bottom:8px;">Capture the viewport of already-open tabs without navigating away.</div>
           <div style="display:flex; gap:6px; margin-bottom:6px;">
             <select id="openTabsMode" class="styled-select" style="flex:1;">
               <option value="window">All tabs in window</option>
@@ -186,21 +182,12 @@
           <input id="tabUrlPattern" type="text" class="hidden"
             placeholder="URL substring, e.g. github.com"
             style="width:100%; margin-bottom:6px; background:#374151; color:#F9FAFB; border:1px solid #4B5563; padding:6px 10px; border-radius:6px; font-size:11px; outline:none; box-sizing:border-box;">
-          <select id="openTabsResolution" class="styled-select" style="width:100%; margin-bottom:8px;">
-            <option value="">No resolution override</option>
-          </select>
-          <div class="action-card" id="captureOpenTabsBtn" style="margin-bottom:4px;">
-            <div class="action-icon" style="background:#1F2937; color:#3B82F6;">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-                <polyline points="2 17 12 22 22 17"></polyline>
-                <polyline points="2 12 12 17 22 12"></polyline>
-              </svg>
-            </div>
-            <div class="action-text">
-              <div class="action-title">Capture View from Open Tabs</div>
-              <div class="action-desc" id="openTabsDesc">Capture all tabs in this window</div>
-            </div>
+          <div id="openTabsDesc" style="font-size:10px; color:#9CA3AF; margin-bottom:6px;">Capture all tabs in this window</div>
+          <div style="display:flex; gap:6px; align-items:center; margin-bottom:4px;">
+            <select id="openTabsResolution" class="styled-select" style="flex:1; min-width:0;">
+              <option value="">No resolution override</option>
+            </select>
+            <button class="capture-trigger" id="captureOpenTabsBtn">Capture</button>
           </div>
         </div>
       </div>
