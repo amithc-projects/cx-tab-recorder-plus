@@ -85,6 +85,8 @@
 
     .btn-primary { background: #2563EB; color: white; border: none; padding: 10px 16px; border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background 0.15s; width: 100%; }
     .btn-primary:hover { background: #1D4ED8; }
+    .btn-secondary { background: transparent; color: #9CA3AF; border: 1px solid #374151; padding: 10px 16px; border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: 0.15s; width: 100%; }
+    .btn-secondary:hover { border-color: #9CA3AF; color: #F9FAFB; }
 
     .folder-status { font-size: 11px; color: #6B7280; text-align: right; margin-top: 6px; }
     .folder-status.ok { color: #10B981; font-weight: 500; }
@@ -127,6 +129,16 @@
             <option value="save">💾 Save only</option>
             <option value="copy">📋 Copy only</option>
           </select>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="field-row">
+          <div>
+            <div class="field-label">Write companion JSON</div>
+            <div class="field-hint">Save a .json file alongside every captured image containing page metadata, tags, and context</div>
+          </div>
+          <label class="toggle-switch"><input type="checkbox" id="enableCompanionJson"><span class="slider"></span></label>
         </div>
       </div>
     </div>
@@ -272,6 +284,20 @@
           <button class="btn-primary" id="btnSaveUrlSet" style="flex:1;">Save Set</button>
           <button class="btn-add-rule" id="btnCancelUrlSet" style="flex:1; margin-top:0;">Cancel</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Export / Import -->
+    <div class="section" style="margin-top: 12px; padding-top: 24px; border-top: 1px solid #1F2937;">
+      <div class="section-label">Backup &amp; Restore</div>
+      <div class="card">
+        <div class="field-hint" style="margin-bottom: 14px;">Export all settings (capture preferences, pre-capture rules, URL sets, resolution sets) to a JSON file. Import to restore or share a configuration. The save folder selection is not included.</div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-secondary" id="btnExportSettings" style="flex:1;">Export Settings</button>
+          <button class="btn-secondary" id="btnImportSettings" style="flex:1;">Import Settings...</button>
+          <input type="file" id="settingsFileInput" accept=".json" style="display:none;">
+        </div>
+        <div id="importStatus" style="font-size:11px; margin-top:8px; display:none;"></div>
       </div>
     </div>
 

@@ -57,7 +57,7 @@ async function refreshFolderDisplay() {
 // Load all settings from storage and populate the form
 function loadSettings() {
   const keys = [
-    'captureDefault', 'saveFileFormat',
+    'captureDefault', 'enableCompanionJson', 'saveFileFormat',
     'enableCaption', 'captionPos', 'captionText',
     'enableWatermark', 'watermarkText',
     'preCaptureRules', 'resolutionSets', 'urlSets',
@@ -66,6 +66,7 @@ function loadSettings() {
     const el = (id) => document.getElementById(id);
 
     if (el('captureDefault')) el('captureDefault').value = result.captureDefault || 'both';
+    if (el('enableCompanionJson')) el('enableCompanionJson').checked = result.enableCompanionJson !== false; // default on
     if (el('saveFileFormat')) el('saveFileFormat').value = result.saveFileFormat || '';
     if (el('enableCaption')) el('enableCaption').checked = !!result.enableCaption;
     if (el('captionPos')) el('captionPos').value = result.captionPos || 'bottom';
@@ -88,7 +89,8 @@ function autosave(key, value) {
 // Wire up auto-save listeners
 function bindAutoSave() {
   const bindings = [
-    { id: 'captureDefault',  event: 'change', key: 'captureDefault',  getValue: (el) => el.value },
+    { id: 'captureDefault',     event: 'change', key: 'captureDefault',     getValue: (el) => el.value },
+    { id: 'enableCompanionJson', event: 'change', key: 'enableCompanionJson', getValue: (el) => el.checked },
     { id: 'saveFileFormat',  event: 'input',  key: 'saveFileFormat',  getValue: (el) => el.value },
     { id: 'enableCaption',   event: 'change', key: 'enableCaption',   getValue: (el) => el.checked },
     { id: 'captionPos',      event: 'change', key: 'captionPos',      getValue: (el) => el.value },
@@ -578,6 +580,79 @@ document.getElementById('sitemapFileInput').addEventListener('change', (e) => {
   if (file) {
     importSitemapFile(file);
     e.target.value = ''; // reset so same file can be re-imported
+  }
+});
+
+// --- EXPORT / IMPORT ---
+
+const EXPORT_KEYS = [
+  'captureDefault', 'enableCompanionJson', 'saveFileFormat',
+  'enableCaption', 'captionPos', 'captionText',
+  'enableWatermark', 'watermarkText',
+  'preCaptureRules', 'resolutionSets', 'urlSets',
+];
+
+function exportSettings() {
+  chrome.storage.local.get(EXPORT_KEYS, (data) => {
+    const payload = {
+      _version: 1,
+      _exportedAt: new Date().toISOString(),
+      _app: 'TabRecorderPlus',
+      ...data,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    a.href = url;
+    a.download = `tab-recorder-plus-settings-${date}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
+function importSettingsFile(file) {
+  const statusEl = document.getElementById('importStatus');
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const payload = JSON.parse(e.target.result);
+      if (payload._app !== 'TabRecorderPlus') {
+        throw new Error('This does not appear to be a Tab Recorder Plus settings file.');
+      }
+
+      // Extract only known keys — never write unknown fields to storage
+      const toSave = {};
+      EXPORT_KEYS.forEach(key => {
+        if (key in payload) toSave[key] = payload[key];
+      });
+
+      chrome.storage.local.set(toSave, () => {
+        // Reload the entire settings UI from storage
+        loadSettings();
+        statusEl.textContent = `Settings imported successfully (exported ${payload._exportedAt ? new Date(payload._exportedAt).toLocaleString() : 'unknown date'}).`;
+        statusEl.style.color = '#10B981';
+        statusEl.style.display = 'block';
+        setTimeout(() => { statusEl.style.display = 'none'; }, 5000);
+      });
+    } catch (err) {
+      statusEl.textContent = `Import failed: ${err.message}`;
+      statusEl.style.color = '#F87171';
+      statusEl.style.display = 'block';
+    }
+  };
+  reader.readAsText(file);
+}
+
+document.getElementById('btnExportSettings').addEventListener('click', exportSettings);
+document.getElementById('btnImportSettings').addEventListener('click', () => {
+  document.getElementById('settingsFileInput').click();
+});
+document.getElementById('settingsFileInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    importSettingsFile(file);
+    e.target.value = '';
   }
 });
 

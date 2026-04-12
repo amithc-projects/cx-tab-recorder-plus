@@ -253,10 +253,14 @@ async function triggerScreenshotFromPopup(intent) {
               if (!ok) {
                 console.log('[TRP popup] writeFSA failed, falling back to DOWNLOAD_FILE');
                 chrome.runtime.sendMessage({ action: "DOWNLOAD_FILE", dataUrl, filename });
+                await saveCompanionJson(null, filename, tab.id, null, 'visible');
+              } else {
+                await saveCompanionJson(fsaHandle, filename, tab.id, null, 'visible');
               }
             } else {
               console.log('[TRP popup] no fsaHandle, sending DOWNLOAD_FILE to background');
               chrome.runtime.sendMessage({ action: "DOWNLOAD_FILE", dataUrl, filename });
+              await saveCompanionJson(null, filename, tab.id, null, 'visible');
             }
           }
 
@@ -448,15 +452,18 @@ async function triggerFullTabCapture(intent) {
           const ok = await writeFSAFromBlob(fsaHandle, blob, msg.filename);
           if (ok) {
             await deleteScreenshotBlob(msg.key).catch(() => {});
+            await saveCompanionJson(fsaHandle, msg.filename, tab.id, null, 'full');
             updateCaptureProgress({ phase: 'done' });
             await new Promise(r => setTimeout(r, 600));
           } else {
             // Blob stays in IDB; tell background to fall back to Downloads
             chrome.runtime.sendMessage({ action: 'SAVE_SCREENSHOT_FALLBACK', key: msg.key, filename: msg.filename, tabId: tab.id });
+            await saveCompanionJson(null, msg.filename, tab.id, null, 'full');
           }
         } else if (captureNeedsSave) {
           // No FSA handle — fall back to Downloads via background
           chrome.runtime.sendMessage({ action: 'SAVE_SCREENSHOT_FALLBACK', key: msg.key, filename: msg.filename, tabId: tab.id });
+          await saveCompanionJson(null, msg.filename, tab.id, null, 'full');
         } else {
           // Copy-only — blob no longer needed
           await deleteScreenshotBlob(msg.key).catch(() => {});
@@ -760,6 +767,58 @@ function injectResolutionInFilename(filename, resolution) {
     : filename + suffix;
 }
 
+// Ask the content script for page metadata (tags, meta tags, resolved context values).
+async function getPageMetadata(tabId) {
+  return new Promise(resolve => {
+    chrome.tabs.sendMessage(tabId, { action: 'GET_PAGE_METADATA' }, (response) => {
+      const _ignored = chrome.runtime.lastError;
+      resolve(response || { tags: [], meta: {}, context: {} });
+    });
+  });
+}
+
+// Save a companion .json file alongside the image, same path/name but .json extension.
+async function saveCompanionJson(fsaHandle, imageFilename, tabId, resolution, captureType) {
+  // Respect the user's toggle — default on if the key has never been set
+  const enabled = await new Promise(resolve =>
+    chrome.storage.local.get(['enableCompanionJson'], r => resolve(r.enableCompanionJson !== false))
+  );
+  if (!enabled) return;
+
+  try {
+    const pageData = await getPageMetadata(tabId);
+    const context = {
+      ...(pageData.context || {}),
+      captureType,
+      ...(resolution ? { resolution: `${resolution.width}x${resolution.height}`, viewportWidth: resolution.width, viewportHeight: resolution.height } : {}),
+    };
+
+    const jsonData = {
+      capturedAt: new Date().toISOString(),
+      imageFile: imageFilename.split('/').pop(),
+      description: '',
+      tags: pageData.tags || [],
+      context,
+      meta: pageData.meta || {},
+    };
+
+    const lastSlash = imageFilename.lastIndexOf('/');
+    const dir  = lastSlash >= 0 ? imageFilename.slice(0, lastSlash + 1) : '';
+    const leaf = lastSlash >= 0 ? imageFilename.slice(lastSlash + 1)    : imageFilename;
+    const jsonFilename = dir + '.' + leaf.replace(/\.[^/.]+$/, '.json');
+    const jsonBlob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' });
+
+    if (fsaHandle) {
+      await writeFSAFromBlob(fsaHandle, jsonBlob, jsonFilename);
+    } else {
+      const jsonDataUrl = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(jsonData, null, 2));
+      chrome.runtime.sendMessage({ action: 'DOWNLOAD_FILE', dataUrl: jsonDataUrl, filename: jsonFilename });
+    }
+  } catch (err) {
+    console.warn('[TRP popup] saveCompanionJson failed:', err);
+  }
+}
+
 // Navigate the given tab to a URL and resolve when the page has fully loaded.
 async function navigateAndWait(tabId, url) {
   return new Promise((resolve) => {
@@ -820,11 +879,14 @@ async function captureOneUrlFull(tabId, fsaHandle, intent, resolution = null) {
             const ok = await writeFSAFromBlob(fsaHandle, blob, filename);
             if (ok) {
               await deleteScreenshotBlob(msg.key).catch(() => {});
+              await saveCompanionJson(fsaHandle, filename, tabId, resolution, 'full');
             } else {
               chrome.runtime.sendMessage({ action: 'SAVE_SCREENSHOT_FALLBACK', key: msg.key, filename, tabId });
+              await saveCompanionJson(null, filename, tabId, resolution, 'full');
             }
           } else {
             chrome.runtime.sendMessage({ action: 'SAVE_SCREENSHOT_FALLBACK', key: msg.key, filename, tabId });
+            await saveCompanionJson(null, filename, tabId, resolution, 'full');
           }
         } else {
           await deleteScreenshotBlob(msg.key).catch(() => {});
@@ -866,8 +928,10 @@ async function captureOneUrlVisible(tabId, windowId, fsaHandle, intent, resoluti
             if (fsaHandle) {
               const ok = await writeFSA(fsaHandle, dataUrl, filename);
               if (!ok) chrome.runtime.sendMessage({ action: 'DOWNLOAD_FILE', dataUrl, filename });
+              await saveCompanionJson(ok ? fsaHandle : null, filename, tabId, resolution, 'visible');
             } else {
               chrome.runtime.sendMessage({ action: 'DOWNLOAD_FILE', dataUrl, filename });
+              await saveCompanionJson(null, filename, tabId, resolution, 'visible');
             }
           }
 

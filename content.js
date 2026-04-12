@@ -154,6 +154,55 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   else if (request.action === "SHOW_TOAST") {
     showToast(request.message);
   }
+
+  // --- PAGE METADATA FOR COMPANION JSON ---
+  else if (request.action === "GET_PAGE_METADATA") {
+    const getMeta = (selector) => {
+      try { return document.querySelector(selector)?.getAttribute('content')?.trim() || ''; }
+      catch (e) { return ''; }
+    };
+
+    // Keywords: combine meta[name="keywords"] + all article:tag entries
+    const keywordsStr = getMeta('meta[name="keywords"]') || getMeta('meta[property="keywords"]') || getMeta('meta[name="news_keywords"]');
+    const articleTags = [...document.querySelectorAll('meta[property="article:tag"]')]
+      .map(el => el.getAttribute('content')?.trim()).filter(Boolean);
+    let tags = keywordsStr ? keywordsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
+    articleTags.forEach(t => { if (!tags.includes(t)) tags.push(t); });
+
+    // Context: all the resolved token values that go into filename generation
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const pathParts = window.location.pathname.split('/').filter(Boolean);
+
+    sendResponse({
+      tags,
+      meta: {
+        description:   getMeta('meta[name="description"]') || getMeta('meta[property="og:description"]'),
+        keywords:      keywordsStr,
+        ogTitle:       getMeta('meta[property="og:title"]'),
+        ogDescription: getMeta('meta[property="og:description"]'),
+        ogImage:       getMeta('meta[property="og:image"]'),
+        ogType:        getMeta('meta[property="og:type"]'),
+        author:        getMeta('meta[name="author"]'),
+        canonicalUrl:  document.querySelector('link[rel="canonical"]')?.href || '',
+      },
+      context: {
+        url:       window.location.href,
+        title:     document.title,
+        domain:    window.location.hostname,
+        path:      window.location.pathname,
+        pathParts,
+        hash:      (window.location.hash || '').replace(/^#/, ''),
+        timestamp: `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`,
+        year:      String(d.getFullYear()),
+        month:     pad(d.getMonth() + 1),
+        day:       pad(d.getDate()),
+        hour:      pad(d.getHours()),
+        minute:    pad(d.getMinutes()),
+        second:    pad(d.getSeconds()),
+      },
+    });
+  }
 });
 
 // --- SCREENSHOT SEQUENCE ---
