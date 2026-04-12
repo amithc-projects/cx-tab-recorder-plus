@@ -50,6 +50,31 @@
       border-radius: 6px; padding: 5px 9px; cursor: pointer; font-size: 13px; flex-shrink: 0;
     }
     .rule-row .btn-delete:hover { color: #F87171; border-color: #F87171; }
+
+    .url-set-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding: 10px 12px; background: #111827; border-radius: 7px; }
+    .url-set-row .url-set-name { flex: 1; font-size: 13px; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .url-set-row .url-set-meta { font-size: 11px; color: #6B7280; white-space: nowrap; flex-shrink: 0; }
+    .url-set-row .btn-edit {
+      background: none; border: 1px solid #374151; color: #6B7280;
+      border-radius: 6px; padding: 5px 9px; cursor: pointer; font-size: 12px; flex-shrink: 0;
+    }
+    .url-set-row .btn-edit:hover { color: #93C5FD; border-color: #3B82F6; }
+    .url-set-row .btn-delete {
+      background: none; border: 1px solid #374151; color: #6B7280;
+      border-radius: 6px; padding: 5px 9px; cursor: pointer; font-size: 13px; flex-shrink: 0;
+    }
+    .url-set-row .btn-delete:hover { color: #F87171; border-color: #F87171; }
+
+    .resolution-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .resolution-row input[type="number"] { width: 72px; -moz-appearance: textfield; }
+    .resolution-row input[type="number"]::-webkit-inner-spin-button { opacity: 0.5; }
+    .resolution-row .sep { color: #6B7280; font-size: 13px; flex-shrink: 0; }
+    .resolution-row .res-label { font-size: 11px; color: #6B7280; flex: 1; }
+    .resolution-row .btn-delete {
+      background: none; border: 1px solid #374151; color: #6B7280;
+      border-radius: 6px; padding: 5px 9px; cursor: pointer; font-size: 13px; flex-shrink: 0;
+    }
+    .resolution-row .btn-delete:hover { color: #F87171; border-color: #F87171; }
     .btn-add-rule {
       background: transparent; color: #9CA3AF; border: 1px dashed #374151;
       border-radius: 7px; padding: 8px; width: 100%; cursor: pointer;
@@ -161,6 +186,92 @@
         <div class="field-hint" style="margin-bottom: 14px;">Rules are applied before every capture and reversed after. Each rule targets a <strong style="color:#9CA3AF;">scope</strong> and applies an <strong style="color:#9CA3AF;">action</strong>.</div>
         <div id="preCaptureRulesList"></div>
         <button class="btn-add-rule" id="btnAddRule">+ Add Rule</button>
+      </div>
+    </div>
+
+    <!-- Resolution Sets -->
+    <div class="section">
+      <div class="section-label">Resolution Sets</div>
+      <div class="card">
+        <div class="field-hint" style="margin-bottom: 14px;">Define named sets of screen dimensions. Assign a resolution set to a URL Set to capture each URL at every resolution automatically. Uses Chrome's DevTools emulation — a debugging notice will appear in the browser during capture.</div>
+        <div id="resolutionSetsList"></div>
+        <button class="btn-add-rule" id="btnAddResolutionSet">+ Add Resolution Set</button>
+      </div>
+    </div>
+
+    <!-- Resolution Set Edit Panel -->
+    <div class="section" id="resolutionSetEditPanel" style="display:none;">
+      <div class="section-label" id="resolutionSetEditTitle">New Resolution Set</div>
+      <div class="card">
+        <div class="field-label" style="margin-bottom:6px;">Set Name</div>
+        <input type="text" id="resolutionSetName" class="full-width" placeholder="e.g. Common Breakpoints">
+
+        <div style="margin-top:14px;">
+          <div class="field-label" style="margin-bottom:8px;">Resolutions <span style="color:#6B7280; font-weight:400;">(width × height, pixels)</span></div>
+          <div id="resolutionRowsList"></div>
+          <button class="btn-add-rule" id="btnAddResolution" style="width:100%; margin-top:4px;">+ Add Resolution</button>
+        </div>
+
+        <div style="display:flex; gap:8px; margin-top:12px;">
+          <button class="btn-primary" id="btnSaveResolutionSet" style="flex:1;">Save Set</button>
+          <button class="btn-add-rule" id="btnCancelResolutionSet" style="flex:1; margin-top:0;">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- URL Sets -->
+    <div class="section">
+      <div class="section-label">URL Sets</div>
+      <div class="card">
+        <div class="field-hint" style="margin-bottom: 14px;">Define named collections of URLs to capture in one click. Select a set from the popup to capture all its URLs in sequence.</div>
+        <div id="urlSetsList"></div>
+        <button class="btn-add-rule" id="btnAddUrlSet">+ Add URL Set</button>
+      </div>
+    </div>
+
+    <!-- URL Set Edit Panel (shown/hidden via JS) -->
+    <div class="section" id="urlSetEditPanel" style="display:none;">
+      <div class="section-label" id="urlSetEditTitle">New URL Set</div>
+      <div class="card">
+        <div class="field-label" style="margin-bottom:6px;">Set Name</div>
+        <input type="text" id="urlSetName" class="full-width" placeholder="e.g. Liverpool Pages">
+
+        <div class="field-row" style="margin-top:14px;">
+          <div class="field-label">Default Capture Action</div>
+          <select id="urlSetAction">
+            <option value="full">Full Page</option>
+            <option value="visible">Visible Area</option>
+          </select>
+        </div>
+
+        <div class="field-row" style="margin-top:12px;">
+          <div>
+            <div class="field-label">Resolution Set</div>
+            <div class="field-hint">Capture each URL at every resolution in the set</div>
+          </div>
+          <select id="urlSetResolution">
+            <option value="">None (current browser size)</option>
+          </select>
+        </div>
+
+        <div class="field-label" style="margin-top:16px; margin-bottom:6px;">URLs <span style="color:#6B7280; font-weight:400;">(one per line)</span></div>
+        <textarea id="urlSetUrls" class="mono" rows="7" placeholder="https://example.com&#10;https://example.org"></textarea>
+
+        <div style="margin-top:12px;">
+          <div class="field-label" style="margin-bottom:6px;">Import from sitemap.xml</div>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="sitemapUrl" placeholder="https://example.com/sitemap.xml" style="flex:1;">
+            <button class="btn-add-rule" id="btnFetchSitemap" style="white-space:nowrap; margin-top:0;">Fetch URL</button>
+          </div>
+          <div style="text-align:center; color:#4B5563; font-size:11px; margin:6px 0;">or</div>
+          <button class="btn-add-rule" id="btnImportSitemap" style="width:100%;">Upload .xml file...</button>
+          <input type="file" id="sitemapFileInput" accept=".xml" style="display:none;">
+        </div>
+
+        <div style="display:flex; gap:8px; margin-top:12px;">
+          <button class="btn-primary" id="btnSaveUrlSet" style="flex:1;">Save Set</button>
+          <button class="btn-add-rule" id="btnCancelUrlSet" style="flex:1; margin-top:0;">Cancel</button>
+        </div>
       </div>
     </div>
 

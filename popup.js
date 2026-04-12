@@ -336,7 +336,7 @@ async function triggerAnnotateModeFromPopup() {
 
 // Update the capturing progress UI. Called both from full-page capture (via runtime messages)
 // and from capture-visible (directly in popup).
-function updateCaptureProgress({ phase, current = 0, total = 0 }) {
+function updateCaptureProgress({ phase, current = 0, total = 0, urlIndex = 0, urlTotal = 0, urlHost = '' }) {
   const label = document.getElementById('capturePhaseLabel');
   const detail = document.getElementById('capturePhaseDetail');
   const fill = document.getElementById('captureProgressFill');
@@ -345,7 +345,17 @@ function updateCaptureProgress({ phase, current = 0, total = 0 }) {
 
   const pct = total > 0 ? Math.round((current / total) * 100) : 0;
 
-  if (phase === 'capturing') {
+  if (phase === 'urlset-navigating') {
+    label.textContent = `${urlIndex} of ${urlTotal}`;
+    detail.textContent = `Navigating to ${urlHost}...`;
+    wrap.style.display = 'block';
+    fill.style.width = Math.round(((urlIndex - 1) / urlTotal) * 100) + '%';
+  } else if (phase === 'urlset-capturing') {
+    label.textContent = `${urlIndex} of ${urlTotal}`;
+    detail.textContent = `Capturing ${urlHost}...`;
+    wrap.style.display = 'block';
+    fill.style.width = Math.round(((urlIndex - 0.5) / urlTotal) * 100) + '%';
+  } else if (phase === 'capturing') {
     label.textContent = 'Capturing frames...';
     detail.textContent = total > 1 ? `Frame ${current} of ${total}` : '';
     wrap.style.display = 'block';
@@ -661,6 +671,279 @@ async function getHandle() {
   });
 }
 
+// --- URL SET CAPTURE ---
+
+let _urlSets = [];
+let _resolutionSets = [];
+
+// Load URL sets (and resolution sets) from storage and populate the selector in the popup.
+function loadUrlSets() {
+  chrome.storage.local.get(['urlSets', 'resolutionSets'], (result) => {
+    _urlSets = result.urlSets || [];
+    _resolutionSets = result.resolutionSets || [];
+    const section = document.getElementById('urlSetSection');
+    const select = document.getElementById('urlSetSelect');
+    if (!section || !select) return;
+
+    if (_urlSets.length === 0) {
+      section.classList.add('hidden');
+      return;
+    }
+
+    select.innerHTML = '';
+    _urlSets.forEach(set => {
+      const resSet = set.resolutionSetId ? _resolutionSets.find(r => r.id === set.resolutionSetId) : null;
+      const resPart = resSet ? `, ${resSet.resolutions.length} size${resSet.resolutions.length !== 1 ? 's' : ''}` : '';
+      const opt = document.createElement('option');
+      opt.value = set.id;
+      opt.textContent = `${set.name}  (${set.urls.length} URL${set.urls.length !== 1 ? 's' : ''}, ${set.defaultAction === 'full' ? 'Full Page' : 'Visible'}${resPart})`;
+      select.appendChild(opt);
+    });
+    section.classList.remove('hidden');
+  });
+}
+
+// --- DEBUGGER / RESOLUTION EMULATION ---
+
+// Attach the Chrome debugger to a tab (safe to call if already attached).
+async function attachDebugger(tabId) {
+  return new Promise(resolve => {
+    chrome.debugger.attach({ tabId }, '1.3', () => {
+      const _ignored = chrome.runtime.lastError; // ignore "already attached"
+      resolve();
+    });
+  });
+}
+
+// Detach the Chrome debugger from a tab (safe to call if not attached).
+async function detachDebugger(tabId) {
+  return new Promise(resolve => {
+    chrome.debugger.detach({ tabId }, () => {
+      const _ignored = chrome.runtime.lastError;
+      resolve();
+    });
+  });
+}
+
+// Apply a viewport size override via Chrome DevTools Protocol.
+// mobile=true for widths ≤ 480px so sites serve mobile layouts.
+async function applyResolution(tabId, resolution) {
+  return new Promise(resolve => {
+    chrome.debugger.sendCommand({ tabId }, 'Emulation.setDeviceMetricsOverride', {
+      width: resolution.width,
+      height: resolution.height,
+      deviceScaleFactor: 1,
+      mobile: resolution.width <= 480,
+    }, () => {
+      const _ignored = chrome.runtime.lastError;
+      resolve();
+    });
+  });
+}
+
+// Clear viewport override and restore the tab's natural size.
+async function clearResolution(tabId) {
+  return new Promise(resolve => {
+    chrome.debugger.sendCommand({ tabId }, 'Emulation.clearDeviceMetricsOverride', {}, () => {
+      const _ignored = chrome.runtime.lastError;
+      resolve();
+    });
+  });
+}
+
+// Inject the resolution suffix (e.g. _1280x800) into a filename before the extension.
+function injectResolutionInFilename(filename, resolution) {
+  const suffix = `_${resolution.width}x${resolution.height}`;
+  const dotIdx = filename.lastIndexOf('.');
+  return dotIdx >= 0
+    ? filename.slice(0, dotIdx) + suffix + filename.slice(dotIdx)
+    : filename + suffix;
+}
+
+// Navigate the given tab to a URL and resolve when the page has fully loaded.
+async function navigateAndWait(tabId, url) {
+  return new Promise((resolve) => {
+    let resolved = false;
+    function listener(updatedTabId, changeInfo) {
+      if (updatedTabId === tabId && changeInfo.status === 'complete') {
+        if (resolved) return;
+        resolved = true;
+        chrome.tabs.onUpdated.removeListener(listener);
+        setTimeout(resolve, 800);
+      }
+    }
+    chrome.tabs.onUpdated.addListener(listener);
+    chrome.tabs.update(tabId, { url });
+    // Safety timeout — resolve anyway if the page never fires 'complete'
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    }, 20000);
+  });
+}
+
+// Capture the current tab as a full page; resolves when blob is saved. Does NOT close the popup.
+// resolution: { width, height } | null — if set, injects _WxH suffix into the saved filename.
+async function captureOneUrlFull(tabId, fsaHandle, intent, resolution = null) {
+  return new Promise((resolve) => {
+    function onProgress(msg) {
+      if (msg.type === 'CAPTURE_PROGRESS') updateCaptureProgress(msg);
+    }
+    chrome.runtime.onMessage.addListener(onProgress);
+
+    chrome.runtime.onMessage.addListener(function onCaptureReady(msg, sender, sendResponse) {
+      if (msg.type !== 'FULL_PAGE_CAPTURE_READY') return;
+      chrome.runtime.onMessage.removeListener(onCaptureReady);
+      chrome.runtime.onMessage.removeListener(onProgress);
+      sendResponse({ handled: true });
+
+      (async () => {
+        const captureIntent = msg.intent || intent;
+        const captureNeedsSave = (captureIntent === 'save' || captureIntent === 'both');
+        const captureNeedsCopy = (captureIntent === 'copy' || captureIntent === 'both');
+
+        const blob = await getScreenshotBlob(msg.key).catch(() => null);
+        if (!blob) { resolve(); return; }
+
+        if (captureNeedsCopy) {
+          try {
+            await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+          } catch (err) { console.error('[TRP popup] clipboard write failed:', err); }
+        }
+
+        if (captureNeedsSave) {
+          const filename = resolution ? injectResolutionInFilename(msg.filename, resolution) : msg.filename;
+          if (fsaHandle) {
+            const ok = await writeFSAFromBlob(fsaHandle, blob, filename);
+            if (ok) {
+              await deleteScreenshotBlob(msg.key).catch(() => {});
+            } else {
+              chrome.runtime.sendMessage({ action: 'SAVE_SCREENSHOT_FALLBACK', key: msg.key, filename, tabId });
+            }
+          } else {
+            chrome.runtime.sendMessage({ action: 'SAVE_SCREENSHOT_FALLBACK', key: msg.key, filename, tabId });
+          }
+        } else {
+          await deleteScreenshotBlob(msg.key).catch(() => {});
+        }
+
+        resolve();
+      })();
+    });
+
+    chrome.tabs.sendMessage(tabId, { action: 'CAPTURE_FULL_PAGE', intent });
+  });
+}
+
+// Capture the current tab as visible area; resolves when saved. Does NOT close the popup.
+// resolution: { width, height } | null — if set, injects _WxH suffix into the saved filename.
+async function captureOneUrlVisible(tabId, windowId, fsaHandle, intent, resolution = null) {
+  return new Promise((resolve) => {
+    chrome.tabs.sendMessage(tabId, { action: 'APPLY_PRE_CAPTURE_RULES' }, () => {
+      const _ignored = chrome.runtime.lastError;
+      setTimeout(async () => {
+        chrome.tabs.captureVisibleTab(windowId, { format: 'png' }, async (dataUrl) => {
+          chrome.tabs.sendMessage(tabId, { action: 'UNDO_PRE_CAPTURE_RULES' }).catch(() => {});
+          if (chrome.runtime.lastError || !dataUrl) { resolve(); return; }
+
+          const freshTab = await chrome.tabs.get(tabId).catch(() => ({ id: tabId, url: '', title: '' }));
+          dataUrl = await applyBrandingToImage(dataUrl, freshTab);
+
+          if (intent === 'copy' || intent === 'both') {
+            try {
+              const res = await fetch(dataUrl);
+              const blob = await res.blob();
+              await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+            } catch (err) { console.error('[TRP popup] clipboard write failed (visible):', err); }
+          }
+
+          if (intent === 'save' || intent === 'both') {
+            let filename = await generateFilename(freshTab);
+            if (resolution) filename = injectResolutionInFilename(filename, resolution);
+            if (fsaHandle) {
+              const ok = await writeFSA(fsaHandle, dataUrl, filename);
+              if (!ok) chrome.runtime.sendMessage({ action: 'DOWNLOAD_FILE', dataUrl, filename });
+            } else {
+              chrome.runtime.sendMessage({ action: 'DOWNLOAD_FILE', dataUrl, filename });
+            }
+          }
+
+          resolve();
+        });
+      }, 100);
+    });
+  });
+}
+
+// Capture every URL in the set sequentially, navigating the active tab each time.
+// If the set has a resolutionSetId, each URL is captured at every defined resolution.
+async function captureUrlSet(set, intent) {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab) return;
+
+  const needsSave = (intent === 'save' || intent === 'both');
+  const fsaHandle = needsSave ? await getGrantedFSAHandle() : null;
+
+  // Resolve the resolution set (if any) — null means capture at current browser size
+  const resSet = set.resolutionSetId ? _resolutionSets.find(r => r.id === set.resolutionSetId) : null;
+  const resolutions = resSet ? resSet.resolutions : [null];
+  const totalCaptures = set.urls.length * resolutions.length;
+  let capturesDone = 0;
+
+  showCapturingView();
+
+  // Attach debugger once for the whole loop if resolution emulation is needed
+  if (resSet) await attachDebugger(tab.id);
+
+  try {
+    for (let i = 0; i < set.urls.length; i++) {
+      const url = set.urls[i];
+      let hostname = url;
+      try { hostname = new URL(url).hostname; } catch (e) {}
+
+      updateCaptureProgress({ phase: 'urlset-navigating', urlIndex: capturesDone + 1, urlTotal: totalCaptures, urlHost: hostname });
+      await navigateAndWait(tab.id, url);
+      await ensureContentScript(tab.id);
+
+      for (let j = 0; j < resolutions.length; j++) {
+        const resolution = resolutions[j];
+        capturesDone++;
+
+        if (resolution) {
+          await applyResolution(tab.id, resolution);
+          await new Promise(r => setTimeout(r, 400)); // allow page to reflow at new size
+          await ensureContentScript(tab.id); // content script might need re-injection after reflow
+        }
+
+        updateCaptureProgress({
+          phase: 'urlset-capturing',
+          urlIndex: capturesDone,
+          urlTotal: totalCaptures,
+          urlHost: resolution ? `${hostname} @ ${resolution.width}×${resolution.height}` : hostname,
+        });
+
+        if (set.defaultAction === 'visible') {
+          await captureOneUrlVisible(tab.id, tab.windowId, fsaHandle, intent, resolution);
+        } else {
+          await captureOneUrlFull(tab.id, fsaHandle, intent, resolution);
+        }
+      }
+
+      // Clear resolution after all sizes for this URL
+      if (resSet) await clearResolution(tab.id);
+    }
+  } finally {
+    if (resSet) await detachDebugger(tab.id);
+  }
+
+  updateCaptureProgress({ phase: 'done' });
+  await new Promise(r => setTimeout(r, 800));
+  window.close();
+}
+
 // Attach Action Listeners
 if (document.getElementById('captureRegionBtn')) {
   document.getElementById('captureRegionBtn').addEventListener('click', triggerAnnotateFromPopup);
@@ -732,3 +1015,18 @@ if (document.getElementById('settingsBtn')) {
     chrome.tabs.create({ url: 'settings.html' });
   });
 }
+
+if (document.getElementById('captureSetBtn')) {
+  document.getElementById('captureSetBtn').addEventListener('click', async (e) => {
+    const select = document.getElementById('urlSetSelect');
+    if (!select) return;
+    const setId = select.value;
+    const set = _urlSets.find(s => s.id === setId);
+    if (!set || set.urls.length === 0) return;
+    const intent = await getActionIntent(e);
+    captureUrlSet(set, intent);
+  });
+}
+
+// Load URL sets on popup init
+loadUrlSets();

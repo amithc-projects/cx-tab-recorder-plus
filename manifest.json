@@ -3,7 +3,7 @@
   "name": "Tab Recorder Plus",
   "version": "3.6",
   "description": "Record browser tabs, annotate, and merge recordings.",
-  "permissions": ["activeTab", "scripting", "storage", "tabCapture", "offscreen", "downloads", "notifications", "clipboardWrite", "clipboardRead", "contextMenus"],
+  "permissions": ["activeTab", "tabs", "debugger", "scripting", "storage", "tabCapture", "offscreen", "downloads", "notifications", "clipboardWrite", "clipboardRead", "contextMenus"],
   "host_permissions": [
     "<all_urls>"
   ],

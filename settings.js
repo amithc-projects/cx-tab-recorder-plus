@@ -60,7 +60,7 @@ function loadSettings() {
     'captureDefault', 'saveFileFormat',
     'enableCaption', 'captionPos', 'captionText',
     'enableWatermark', 'watermarkText',
-    'preCaptureRules',
+    'preCaptureRules', 'resolutionSets', 'urlSets',
   ];
   chrome.storage.local.get(keys, (result) => {
     const el = (id) => document.getElementById(id);
@@ -74,6 +74,9 @@ function loadSettings() {
     if (el('watermarkText')) el('watermarkText').value = result.watermarkText || '';
 
     renderAllRules(result.preCaptureRules || []);
+    // Resolution sets must be loaded before URL sets (populates the dropdown)
+    renderResolutionSets(result.resolutionSets || []);
+    renderUrlSets(result.urlSets || []);
   });
 }
 
@@ -238,6 +241,344 @@ document.getElementById('btnAddRule').addEventListener('click', () => {
   const list = document.getElementById('preCaptureRulesList');
   if (list) list.appendChild(buildRuleEl(rule));
   saveRules();
+});
+
+// --- RESOLUTION SETS ---
+
+let resolutionSets = [];
+let editingResolutionSetId = null;
+let editingResolutions = []; // temp array while editing a resolution set
+
+function renderResolutionSets(sets) {
+  resolutionSets = sets;
+  const list = document.getElementById('resolutionSetsList');
+  if (!list) return;
+  list.innerHTML = '';
+  resolutionSets.forEach(set => list.appendChild(buildResolutionSetEl(set)));
+  // Refresh the resolution dropdown in the URL set edit panel
+  refreshResolutionDropdown();
+}
+
+function buildResolutionSetEl(set) {
+  const row = document.createElement('div');
+  row.className = 'url-set-row';
+  row.dataset.id = set.id;
+
+  const nameEl = document.createElement('div');
+  nameEl.className = 'url-set-name';
+  nameEl.textContent = set.name;
+
+  const metaEl = document.createElement('div');
+  metaEl.className = 'url-set-meta';
+  metaEl.textContent = `${set.resolutions.length} size${set.resolutions.length !== 1 ? 's' : ''}`;
+
+  const editBtn = document.createElement('button');
+  editBtn.className = 'btn-edit';
+  editBtn.textContent = '✏';
+  editBtn.title = 'Edit set';
+  editBtn.addEventListener('click', () => showResolutionSetEditPanel(set));
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'btn-delete';
+  delBtn.textContent = '✕';
+  delBtn.title = 'Delete set';
+  delBtn.addEventListener('click', () => {
+    resolutionSets = resolutionSets.filter(s => s.id !== set.id);
+    chrome.storage.local.set({ resolutionSets });
+    renderResolutionSets(resolutionSets);
+  });
+
+  row.appendChild(nameEl);
+  row.appendChild(metaEl);
+  row.appendChild(editBtn);
+  row.appendChild(delBtn);
+  return row;
+}
+
+function refreshResolutionDropdown() {
+  const sel = document.getElementById('urlSetResolution');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">None (current browser size)</option>';
+  resolutionSets.forEach(set => {
+    const opt = document.createElement('option');
+    opt.value = set.id;
+    opt.textContent = `${set.name}  (${set.resolutions.map(r => `${r.width}×${r.height}`).join(', ')})`;
+    sel.appendChild(opt);
+  });
+  sel.value = current; // restore selection if still valid
+}
+
+function buildResolutionRow(res) {
+  const row = document.createElement('div');
+  row.className = 'resolution-row';
+
+  const wInput = document.createElement('input');
+  wInput.type = 'number';
+  wInput.min = '240';
+  wInput.max = '7680';
+  wInput.value = res.width;
+  wInput.placeholder = '1280';
+  wInput.addEventListener('input', () => { res.width = parseInt(wInput.value, 10) || 0; });
+
+  const sep = document.createElement('span');
+  sep.className = 'sep';
+  sep.textContent = '×';
+
+  const hInput = document.createElement('input');
+  hInput.type = 'number';
+  hInput.min = '240';
+  hInput.max = '4320';
+  hInput.value = res.height;
+  hInput.placeholder = '800';
+  hInput.addEventListener('input', () => { res.height = parseInt(hInput.value, 10) || 0; });
+
+  const label = document.createElement('span');
+  label.className = 'res-label';
+  label.textContent = res.width <= 480 ? 'Mobile' : res.width <= 820 ? 'Tablet' : res.width <= 1366 ? 'Laptop' : 'Desktop';
+  wInput.addEventListener('input', () => {
+    const w = parseInt(wInput.value, 10) || 0;
+    label.textContent = w <= 480 ? 'Mobile' : w <= 820 ? 'Tablet' : w <= 1366 ? 'Laptop' : 'Desktop';
+  });
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'btn-delete';
+  delBtn.textContent = '✕';
+  delBtn.addEventListener('click', () => {
+    const idx = editingResolutions.indexOf(res);
+    if (idx >= 0) editingResolutions.splice(idx, 1);
+    row.remove();
+  });
+
+  row.appendChild(wInput);
+  row.appendChild(sep);
+  row.appendChild(hInput);
+  row.appendChild(label);
+  row.appendChild(delBtn);
+  return row;
+}
+
+function showResolutionSetEditPanel(set = null) {
+  editingResolutionSetId = set ? set.id : null;
+  editingResolutions = set ? set.resolutions.map(r => ({ ...r })) : [];
+  const panel = document.getElementById('resolutionSetEditPanel');
+  const title = document.getElementById('resolutionSetEditTitle');
+  if (!panel) return;
+
+  document.getElementById('resolutionSetName').value = set ? set.name : '';
+  title.textContent = set ? 'Edit Resolution Set' : 'New Resolution Set';
+
+  const list = document.getElementById('resolutionRowsList');
+  list.innerHTML = '';
+  editingResolutions.forEach(res => list.appendChild(buildResolutionRow(res)));
+
+  panel.style.display = 'block';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function hideResolutionSetEditPanel() {
+  const panel = document.getElementById('resolutionSetEditPanel');
+  if (panel) panel.style.display = 'none';
+  editingResolutionSetId = null;
+  editingResolutions = [];
+}
+
+function saveResolutionSet() {
+  const name = document.getElementById('resolutionSetName').value.trim();
+  if (!name) { document.getElementById('resolutionSetName').focus(); return; }
+
+  const resolutions = editingResolutions.filter(r => r.width > 0 && r.height > 0);
+  if (resolutions.length === 0) { alert('Add at least one resolution.'); return; }
+
+  if (editingResolutionSetId) {
+    const idx = resolutionSets.findIndex(s => s.id === editingResolutionSetId);
+    if (idx >= 0) resolutionSets[idx] = { ...resolutionSets[idx], name, resolutions };
+  } else {
+    resolutionSets.push({ id: 'trp-res-' + Date.now(), name, resolutions });
+  }
+
+  chrome.storage.local.set({ resolutionSets });
+  renderResolutionSets(resolutionSets);
+  hideResolutionSetEditPanel();
+}
+
+document.getElementById('btnAddResolutionSet').addEventListener('click', () => showResolutionSetEditPanel(null));
+document.getElementById('btnSaveResolutionSet').addEventListener('click', saveResolutionSet);
+document.getElementById('btnCancelResolutionSet').addEventListener('click', hideResolutionSetEditPanel);
+document.getElementById('btnAddResolution').addEventListener('click', () => {
+  const res = { width: 1280, height: 800 };
+  editingResolutions.push(res);
+  document.getElementById('resolutionRowsList').appendChild(buildResolutionRow(res));
+});
+
+// --- URL SETS ---
+
+let urlSets = [];
+let editingSetId = null;
+
+function renderUrlSets(sets) {
+  urlSets = sets;
+  const list = document.getElementById('urlSetsList');
+  if (!list) return;
+  list.innerHTML = '';
+  urlSets.forEach(set => list.appendChild(buildUrlSetEl(set)));
+}
+
+function buildUrlSetEl(set) {
+  const row = document.createElement('div');
+  row.className = 'url-set-row';
+  row.dataset.id = set.id;
+
+  const nameEl = document.createElement('div');
+  nameEl.className = 'url-set-name';
+  nameEl.textContent = set.name;
+
+  const metaEl = document.createElement('div');
+  metaEl.className = 'url-set-meta';
+  const resSet = set.resolutionSetId ? resolutionSets.find(r => r.id === set.resolutionSetId) : null;
+  metaEl.textContent = `${set.urls.length} URL${set.urls.length !== 1 ? 's' : ''} · ${set.defaultAction === 'full' ? 'Full Page' : 'Visible'}${resSet ? ' · ' + resSet.name : ''}`;
+
+  const editBtn = document.createElement('button');
+  editBtn.className = 'btn-edit';
+  editBtn.textContent = '✏';
+  editBtn.title = 'Edit set';
+  editBtn.addEventListener('click', () => showUrlSetEditPanel(set));
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'btn-delete';
+  delBtn.textContent = '✕';
+  delBtn.title = 'Delete set';
+  delBtn.addEventListener('click', () => {
+    urlSets = urlSets.filter(s => s.id !== set.id);
+    chrome.storage.local.set({ urlSets });
+    renderUrlSets(urlSets);
+  });
+
+  row.appendChild(nameEl);
+  row.appendChild(metaEl);
+  row.appendChild(editBtn);
+  row.appendChild(delBtn);
+  return row;
+}
+
+function showUrlSetEditPanel(set = null) {
+  editingSetId = set ? set.id : null;
+  const panel = document.getElementById('urlSetEditPanel');
+  const title = document.getElementById('urlSetEditTitle');
+  if (!panel) return;
+
+  document.getElementById('urlSetName').value = set ? set.name : '';
+  document.getElementById('urlSetAction').value = set ? set.defaultAction : 'full';
+  document.getElementById('urlSetUrls').value = set ? set.urls.join('\n') : '';
+  title.textContent = set ? 'Edit URL Set' : 'New URL Set';
+
+  // Repopulate resolution dropdown and restore selection
+  refreshResolutionDropdown();
+  document.getElementById('urlSetResolution').value = set ? (set.resolutionSetId || '') : '';
+
+  panel.style.display = 'block';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function hideUrlSetEditPanel() {
+  const panel = document.getElementById('urlSetEditPanel');
+  if (panel) panel.style.display = 'none';
+  editingSetId = null;
+}
+
+function saveUrlSet() {
+  const name = document.getElementById('urlSetName').value.trim();
+  const defaultAction = document.getElementById('urlSetAction').value;
+  const resolutionSetId = document.getElementById('urlSetResolution').value || null;
+  const urls = document.getElementById('urlSetUrls').value
+    .split('\n').map(u => u.trim()).filter(u => u.length > 0);
+
+  if (!name) {
+    document.getElementById('urlSetName').focus();
+    return;
+  }
+
+  if (editingSetId) {
+    const idx = urlSets.findIndex(s => s.id === editingSetId);
+    if (idx >= 0) urlSets[idx] = { ...urlSets[idx], name, defaultAction, resolutionSetId, urls };
+  } else {
+    urlSets.push({ id: 'trp-set-' + Date.now(), name, defaultAction, resolutionSetId, urls });
+  }
+
+  chrome.storage.local.set({ urlSets });
+  renderUrlSets(urlSets);
+  hideUrlSetEditPanel();
+}
+
+function parseSitemapXml(xmlText) {
+  const parser = new DOMParser();
+  const xml = parser.parseFromString(xmlText, 'application/xml');
+  const parseError = xml.querySelector('parsererror');
+  if (parseError) throw new Error('Invalid XML');
+  const locs = [...xml.querySelectorAll('loc')].map(el => el.textContent.trim()).filter(Boolean);
+  return locs;
+}
+
+function appendSitemapUrls(locs) {
+  if (locs.length === 0) { alert('No <loc> elements found in sitemap.'); return; }
+  const textarea = document.getElementById('urlSetUrls');
+  const existing = textarea.value.trim();
+  textarea.value = (existing ? existing + '\n' : '') + locs.join('\n');
+}
+
+function importSitemapFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      appendSitemapUrls(parseSitemapXml(e.target.result));
+    } catch (err) {
+      alert('Failed to parse sitemap XML.');
+    }
+  };
+  reader.readAsText(file);
+}
+
+async function importSitemapFromUrl(url) {
+  const btn = document.getElementById('btnFetchSitemap');
+  const origText = btn.textContent;
+  btn.textContent = 'Fetching...';
+  btn.disabled = true;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    appendSitemapUrls(parseSitemapXml(text));
+    document.getElementById('sitemapUrl').value = '';
+  } catch (err) {
+    alert(`Failed to fetch sitemap: ${err.message}`);
+  } finally {
+    btn.textContent = origText;
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('btnAddUrlSet').addEventListener('click', () => showUrlSetEditPanel(null));
+document.getElementById('btnSaveUrlSet').addEventListener('click', saveUrlSet);
+document.getElementById('btnCancelUrlSet').addEventListener('click', hideUrlSetEditPanel);
+
+document.getElementById('btnFetchSitemap').addEventListener('click', () => {
+  const url = document.getElementById('sitemapUrl').value.trim();
+  if (!url) { document.getElementById('sitemapUrl').focus(); return; }
+  importSitemapFromUrl(url);
+});
+document.getElementById('sitemapUrl').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('btnFetchSitemap').click();
+});
+
+document.getElementById('btnImportSitemap').addEventListener('click', () => {
+  document.getElementById('sitemapFileInput').click();
+});
+document.getElementById('sitemapFileInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    importSitemapFile(file);
+    e.target.value = ''; // reset so same file can be re-imported
+  }
 });
 
 // Folder picker
