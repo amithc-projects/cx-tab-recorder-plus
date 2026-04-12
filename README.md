@@ -1,6 +1,6 @@
-# Tab Recorder Plus
+# OmniCapt
 
-Tab Recorder Plus is a feature-rich Google Chrome extension for recording browser tabs, capturing screenshots, annotating over pages, and batch-capturing multiple URLs or open tabs at multiple resolutions.
+OmniCapt is a feature-rich Google Chrome extension for recording browser tabs, capturing screenshots, annotating over pages, and batch-capturing multiple URLs or open tabs at multiple resolutions.
 
 ## Features
 

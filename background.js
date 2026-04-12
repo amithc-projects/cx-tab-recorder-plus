@@ -9,7 +9,7 @@ let isPausedRecording = false;
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: 'trp-open',
-    title: 'Tab Recorder Plus',
+    title: 'OmniCapt',
     contexts: ['all']
   });
 });

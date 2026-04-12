@@ -2,8 +2,8 @@
 (function() {
 
 // 0. SAFETY GUARD — IIFE allows safe re-injection without duplicate listeners
-if (window.hasTabRecorderPlusRun) return;
-window.hasTabRecorderPlusRun = true;
+if (window.hasOmniCaptRun) return;
+window.hasOmniCaptRun = true;
 
 // --- VARIABLES ---
 let _preCaptureRefs = null; // held between APPLY_PRE_CAPTURE_RULES and UNDO_PRE_CAPTURE_RULES messages
@@ -666,8 +666,8 @@ function showToast(message) {
 
 // --- FULL PAGE CAPTURE ---
 async function performFullPageCapture(intent) {
-  if (window.isTabRecorderCapturing) return;
-  window.isTabRecorderCapturing = true;
+  if (window.isOmniCaptCapturing) return;
+  window.isOmniCaptCapturing = true;
   try {
   prepareForCapture();
   const preCapture = await applyPreCaptureRules();
@@ -788,7 +788,7 @@ async function performFullPageCapture(intent) {
     chrome.runtime.sendMessage({ type: 'CAPTURE_FULL_PAGE_FAILED' });
     showToast("⚠️ Capture failed: " + err.message);
   } finally {
-    window.isTabRecorderCapturing = false;
+    window.isOmniCaptCapturing = false;
   }
 }
 
@@ -899,7 +899,7 @@ function createToolbar() {
   toolbar.innerHTML = `
     <div class="trp-branding">
       <svg viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
-      <span class="trp-brand-text">TabRecorderPlus</span>
+      <span class="trp-brand-text">OmniCapt</span>
     </div>
     <div class="divider"></div>
     <button id="btn-undo" class="trp-annotate-only" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13"/></svg></button>

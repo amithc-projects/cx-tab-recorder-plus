@@ -1,11 +1,11 @@
 // content-init.js
 
 // 0. SAFETY GUARD (Reset mechanism)
-if (window.hasTabRecorderPlusRun) {
+if (window.hasOmniCaptRun) {
   // We allow re-running if needed, or just log it
-  console.log("TabRecorderPlus scripts re-injected");
+  console.log("OmniCapt scripts re-injected");
 }
-window.hasTabRecorderPlusRun = true;
+window.hasOmniCaptRun = true;
 
 // --- SHARED GLOBALS (var is used for cross-file scope) ---
 var timerInterval = null;

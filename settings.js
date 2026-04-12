@@ -681,7 +681,7 @@ function exportSettings() {
     const payload = {
       _version: 1,
       _exportedAt: new Date().toISOString(),
-      _app: 'TabRecorderPlus',
+      _app: 'OmniCapt',
       ...data,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -689,7 +689,7 @@ function exportSettings() {
     const a = document.createElement('a');
     const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     a.href = url;
-    a.download = `tab-recorder-plus-settings-${date}.json`;
+    a.download = `omnicapt-settings-${date}.json`;
     a.click();
     URL.revokeObjectURL(url);
   });
@@ -701,8 +701,8 @@ function importSettingsFile(file) {
   reader.onload = (e) => {
     try {
       const payload = JSON.parse(e.target.result);
-      if (payload._app !== 'TabRecorderPlus') {
-        throw new Error('This does not appear to be a Tab Recorder Plus settings file.');
+      if (payload._app !== 'OmniCapt' && payload._app !== 'TabRecorderPlus') {
+        throw new Error('This does not appear to be an OmniCapt settings file.');
       }
 
       // Extract only known keys — never write unknown fields to storage
