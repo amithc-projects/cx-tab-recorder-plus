@@ -772,6 +772,7 @@ async function performFullPageCapture(intent) {
   });
   if (!stitchedUrl) {
     chrome.runtime.sendMessage({ type: 'CAPTURE_PROGRESS', phase: 'error' });
+    chrome.runtime.sendMessage({ type: 'CAPTURE_FULL_PAGE_FAILED' });
     return showToast("⚠️ Capture Cancelled: No frames acquired.");
   }
   stitchedUrl = await applyBrandingToImage(stitchedUrl);
@@ -784,6 +785,7 @@ async function performFullPageCapture(intent) {
 
   } catch (err) {
     console.error("Full page capture error:", err);
+    chrome.runtime.sendMessage({ type: 'CAPTURE_FULL_PAGE_FAILED' });
     showToast("⚠️ Capture failed: " + err.message);
   } finally {
     window.isTabRecorderCapturing = false;

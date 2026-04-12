@@ -280,6 +280,17 @@
           <input type="file" id="sitemapFileInput" accept=".xml" style="display:none;">
         </div>
 
+        <div style="margin-top:12px;">
+          <div class="field-label" style="margin-bottom:6px;">Import from open tabs</div>
+          <button class="btn-add-rule" id="btnImportAllTabs" style="width:100%; margin-top:0; margin-bottom:8px;">All tabs in window</button>
+          <div style="display:flex; gap:8px;">
+            <select id="tabGroupImportSelect" style="flex:1; background:#374151; color:#F9FAFB; border:1px solid #4B5563; padding:6px 8px; border-radius:6px; font-size:12px; outline:none; cursor:pointer;">
+              <option value="">No tab groups found</option>
+            </select>
+            <button class="btn-add-rule" id="btnImportTabGroup" style="white-space:nowrap; margin-top:0;">Import group</button>
+          </div>
+        </div>
+
         <div style="display:flex; gap:8px; margin-top:12px;">
           <button class="btn-primary" id="btnSaveUrlSet" style="flex:1;">Save Set</button>
           <button class="btn-add-rule" id="btnCancelUrlSet" style="flex:1; margin-top:0;">Cancel</button>

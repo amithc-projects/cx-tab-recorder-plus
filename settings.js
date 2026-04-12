@@ -480,6 +480,7 @@ function showUrlSetEditPanel(set = null) {
 
   panel.style.display = 'block';
   panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  loadTabGroupsForImport();
 }
 
 function hideUrlSetEditPanel() {
@@ -558,6 +559,81 @@ async function importSitemapFromUrl(url) {
     btn.disabled = false;
   }
 }
+
+// --- IMPORT FROM OPEN TABS ---
+
+async function loadTabGroupsForImport() {
+  const sel = document.getElementById('tabGroupImportSelect');
+  if (!sel) return;
+  sel.innerHTML = '';
+
+  if (!chrome.tabGroups) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'Tab groups not available';
+    sel.appendChild(opt);
+    return;
+  }
+
+  try {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const groups = await chrome.tabGroups.query({ windowId: activeTab.windowId });
+
+    if (groups.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'No tab groups in this window';
+      sel.appendChild(opt);
+      return;
+    }
+
+    groups.forEach(group => {
+      const opt = document.createElement('option');
+      opt.value = group.id;
+      opt.textContent = group.title || `Group (${group.color})`;
+      sel.appendChild(opt);
+    });
+  } catch (e) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'Error loading groups';
+    sel.appendChild(opt);
+  }
+}
+
+function appendTabUrls(tabs) {
+  const urls = tabs.map(t => t.url).filter(u => u && !u.startsWith('chrome://') && !u.startsWith('chrome-extension://'));
+  if (urls.length === 0) { alert('No capturable tabs found.'); return; }
+  const textarea = document.getElementById('urlSetUrls');
+  const existing = textarea.value.trim();
+  textarea.value = (existing ? existing + '\n' : '') + urls.join('\n');
+}
+
+async function importAllTabUrls() {
+  try {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabs = await chrome.tabs.query({ windowId: activeTab.windowId });
+    appendTabUrls(tabs);
+  } catch (e) {
+    alert('Failed to get open tabs.');
+  }
+}
+
+async function importTabGroupUrls() {
+  const sel = document.getElementById('tabGroupImportSelect');
+  const groupId = sel ? parseInt(sel.value, 10) : NaN;
+  if (!groupId || isNaN(groupId)) { alert('Select a tab group first.'); return; }
+  try {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabs = await chrome.tabs.query({ windowId: activeTab.windowId, groupId });
+    appendTabUrls(tabs);
+  } catch (e) {
+    alert('Failed to get tabs from group.');
+  }
+}
+
+document.getElementById('btnImportAllTabs').addEventListener('click', importAllTabUrls);
+document.getElementById('btnImportTabGroup').addEventListener('click', importTabGroupUrls);
 
 document.getElementById('btnAddUrlSet').addEventListener('click', () => showUrlSetEditPanel(null));
 document.getElementById('btnSaveUrlSet').addEventListener('click', saveUrlSet);

@@ -388,11 +388,12 @@ function captureForPort(port, windowId, attempt) {
     (dataUrl) => {
       if (chrome.runtime.lastError) {
         const errMsg = chrome.runtime.lastError.message;
-        if (attempt < 4) {
-          setTimeout(() => captureForPort(port, windowId, attempt + 1), 300);
+        console.warn(`TRP captureVisibleTab attempt ${attempt} failed (windowId=${windowId}):`, errMsg);
+        if (attempt < 8) {
+          setTimeout(() => captureForPort(port, windowId, attempt + 1), 400);
           return;
         }
-        console.error('TRP captureVisibleTab failed:', errMsg);
+        console.error('TRP captureVisibleTab gave up after 8 attempts:', errMsg);
         try { port.postMessage({ success: false, error: errMsg }); } catch (e) {}
         return;
       }
