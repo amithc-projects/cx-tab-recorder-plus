@@ -1,5 +1,13 @@
 // settings.js — runs in settings.html (extension page, extension-origin IDB)
 
+// Scroll to anchor if opened with a hash (e.g. settings.html#section-url-sets)
+window.addEventListener('load', () => {
+  if (location.hash) {
+    const el = document.querySelector(location.hash);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+});
+
 const DB_NAME = 'TabRecorderDB';
 const STORE_NAME = 'Handles';
 

@@ -10,7 +10,7 @@ const tabCapture = document.getElementById('tabCapture');
 
 function showCapturingView() {
   setupView.classList.add('hidden');
-  document.querySelector('.bottom-nav').classList.add('hidden');
+
   document.getElementById('capturingView').classList.remove('hidden');
 }
 
@@ -688,12 +688,14 @@ function loadUrlSets() {
   chrome.storage.local.get(['urlSets', 'resolutionSets'], (result) => {
     _urlSets = result.urlSets || [];
     _resolutionSets = result.resolutionSets || [];
-    const section = document.getElementById('urlSetSection');
     const select = document.getElementById('urlSetSelect');
-    if (!section || !select) return;
+    const emptyMsg = document.getElementById('noUrlSetsMsg');
+    const content = document.getElementById('urlSetContent');
+    if (!select || !emptyMsg || !content) return;
 
     if (_urlSets.length === 0) {
-      section.classList.add('hidden');
+      emptyMsg.classList.remove('hidden');
+      content.classList.add('hidden');
     } else {
       select.innerHTML = '';
       _urlSets.forEach(set => {
@@ -704,11 +706,42 @@ function loadUrlSets() {
         opt.textContent = `${set.name}  (${set.urls.length} URL${set.urls.length !== 1 ? 's' : ''}, ${set.defaultAction === 'full' ? 'Full Page' : 'Visible'}${resPart})`;
         select.appendChild(opt);
       });
-      section.classList.remove('hidden');
+      emptyMsg.classList.add('hidden');
+      content.classList.remove('hidden');
     }
 
     // Populate Open Tabs UI now that _resolutionSets is available
     loadOpenTabsUI();
+  });
+}
+
+// Batch capture tab switching
+(function initBatchTabs() {
+  const tabSets = document.getElementById('batchTabSets');
+  const tabOpen = document.getElementById('batchTabOpenTabs');
+  const panelSets = document.getElementById('batchPanelSets');
+  const panelOpen = document.getElementById('batchPanelOpenTabs');
+  if (!tabSets || !tabOpen) return;
+
+  tabSets.addEventListener('click', () => {
+    tabSets.classList.add('active');
+    tabOpen.classList.remove('active');
+    panelSets.classList.remove('hidden');
+    panelOpen.classList.add('hidden');
+  });
+
+  tabOpen.addEventListener('click', () => {
+    tabOpen.classList.add('active');
+    tabSets.classList.remove('active');
+    panelOpen.classList.remove('hidden');
+    panelSets.classList.add('hidden');
+  });
+})();
+
+// Settings link — opens settings page scrolled to the URL Sets section
+if (document.getElementById('linkToUrlSets')) {
+  document.getElementById('linkToUrlSets').addEventListener('click', () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('settings.html') + '#section-url-sets' });
   });
 }
 
@@ -1148,9 +1181,8 @@ if (document.getElementById('stopBtn')) {
   });
 }
 
-// Footer Nav Actions
-if (document.getElementById('navMerge')) {
-  document.getElementById('navMerge').addEventListener('click', () => {
+if (document.getElementById('btnMergeVideos')) {
+  document.getElementById('btnMergeVideos').addEventListener('click', () => {
     chrome.tabs.create({ url: 'merger.html' });
   });
 }

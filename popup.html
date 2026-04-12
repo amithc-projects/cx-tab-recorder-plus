@@ -49,6 +49,13 @@
       /* DROPDOWN */
       .styled-select { background: #374151; color: white; border: none; padding: 6px 10px; border-radius: 6px; font-size: 11px; outline: none; cursor: pointer; }
 
+      /* BATCH TABS */
+      .batch-tab-bar { display: flex; border-bottom: 1px solid #374151; margin-bottom: 0; }
+      .batch-tab { flex: 1; text-align: center; padding: 7px 0; font-size: 11px; font-weight: 600; color: #6B7280; cursor: pointer; background: transparent; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color 0.15s, border-color 0.15s; }
+      .batch-tab.active { color: #3B82F6; border-bottom-color: #3B82F6; }
+      .batch-tab:hover:not(.active) { color: #9CA3AF; }
+      .batch-panel { padding: 10px 0 4px; }
+
       /* BIG BUTTONS */
       #btnRecordScreen { background: #DC2626; justify-content: center; margin-top: 20px; }
       #btnRecordScreen:hover { background: #EF4444; }
@@ -87,54 +94,7 @@
 
       <!-- CAPTURE TAB -->
       <div id="viewCapture" class="view-container active">
-        <div class="section-title">Capture <span class="live-badge">LIVE</span></div>
-
-        <!-- URL SET SECTION — shown only when at least one set is defined -->
-        <div id="urlSetSection" class="hidden">
-          <select id="urlSetSelect" class="styled-select" style="width:100%; margin-bottom:8px;"></select>
-          <div class="action-card" id="captureSetBtn" style="margin-bottom:16px;">
-            <div class="action-icon" style="background:#1F2937; color:#3B82F6;">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
-            </div>
-            <div class="action-text">
-              <div class="action-title">Capture URL Set</div>
-              <div class="action-desc">Navigate &amp; capture all URLs in set</div>
-            </div>
-          </div>
-          <div style="height:1px; background:#1F2937; margin-bottom:12px;"></div>
-        </div>
-
-        <!-- OPEN TABS SECTION — always visible -->
-        <div id="openTabsSection">
-          <div style="display:flex; gap:6px; margin-bottom:6px;">
-            <select id="openTabsMode" class="styled-select" style="flex:1;">
-              <option value="window">All tabs in window</option>
-              <option value="group">Tab group</option>
-              <option value="url">Tabs matching URL</option>
-            </select>
-          </div>
-          <select id="tabGroupSelect" class="styled-select hidden" style="width:100%; margin-bottom:6px;"></select>
-          <input id="tabUrlPattern" type="text" class="hidden"
-            placeholder="URL substring, e.g. github.com"
-            style="width:100%; margin-bottom:6px; background:#374151; color:#F9FAFB; border:1px solid #4B5563; padding:6px 10px; border-radius:6px; font-size:11px; outline:none; box-sizing:border-box;">
-          <select id="openTabsResolution" class="styled-select" style="width:100%; margin-bottom:8px;">
-            <option value="">No resolution override</option>
-          </select>
-          <div class="action-card" id="captureOpenTabsBtn" style="margin-bottom:16px;">
-            <div class="action-icon" style="background:#1F2937; color:#3B82F6;">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-                <polyline points="2 17 12 22 22 17"></polyline>
-                <polyline points="2 12 12 17 22 12"></polyline>
-              </svg>
-            </div>
-            <div class="action-text">
-              <div class="action-title">Capture View from Open Tabs</div>
-              <div class="action-desc" id="openTabsDesc">Capture all tabs in this window</div>
-            </div>
-          </div>
-          <div style="height:1px; background:#1F2937; margin-bottom:12px;"></div>
-        </div>
+        <div class="section-title">Capture This Page <span class="live-badge">LIVE</span></div>
 
         <div class="action-card" id="screenshotBtn">
           <div class="action-icon" style="background:#1F2937; color:#3B82F6;">
@@ -178,6 +138,70 @@
             <div class="action-desc">Draw on page before capturing</div>
           </div>
           <div class="shortcut-key">A</div>
+        </div>
+
+        <!-- BATCH CAPTURE SECTION -->
+        <div class="section-title" style="margin-top:8px;">Batch Capture</div>
+
+        <!-- Tab selector -->
+        <div class="batch-tab-bar">
+          <button class="batch-tab active" id="batchTabSets">Pre-defined Sets</button>
+          <button class="batch-tab" id="batchTabOpenTabs">Open Tabs</button>
+        </div>
+
+        <!-- Pre-defined Sets panel -->
+        <div id="batchPanelSets" class="batch-panel">
+          <div style="font-size:11px; color:#9CA3AF; margin-bottom:8px;">Navigate to each URL in a saved set and capture in sequence.</div>
+          <!-- Empty state -->
+          <div id="noUrlSetsMsg" style="font-size:11px; color:#6B7280; padding:8px 0;">No URL sets defined yet.</div>
+          <!-- Populated state -->
+          <div id="urlSetContent" class="hidden">
+            <select id="urlSetSelect" class="styled-select" style="width:100%; margin-bottom:8px;"></select>
+            <div class="action-card" id="captureSetBtn" style="margin-bottom:8px;">
+              <div class="action-icon" style="background:#1F2937; color:#3B82F6;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+              </div>
+              <div class="action-text">
+                <div class="action-title">Capture URL Set</div>
+                <div class="action-desc">Navigate &amp; capture all URLs in set</div>
+              </div>
+            </div>
+          </div>
+          <div style="text-align:right; margin-bottom:4px;">
+            <span id="linkToUrlSets" style="font-size:10px; color:#3B82F6; cursor:pointer;">Manage URL sets in Settings →</span>
+          </div>
+        </div>
+
+        <!-- Open Tabs panel -->
+        <div id="batchPanelOpenTabs" class="batch-panel hidden">
+          <div style="font-size:11px; color:#9CA3AF; margin-bottom:8px;">Capture the viewport of already-open tabs without navigating away.</div>
+          <div style="display:flex; gap:6px; margin-bottom:6px;">
+            <select id="openTabsMode" class="styled-select" style="flex:1;">
+              <option value="window">All tabs in window</option>
+              <option value="group">Tab group</option>
+              <option value="url">Tabs matching URL</option>
+            </select>
+          </div>
+          <select id="tabGroupSelect" class="styled-select hidden" style="width:100%; margin-bottom:6px;"></select>
+          <input id="tabUrlPattern" type="text" class="hidden"
+            placeholder="URL substring, e.g. github.com"
+            style="width:100%; margin-bottom:6px; background:#374151; color:#F9FAFB; border:1px solid #4B5563; padding:6px 10px; border-radius:6px; font-size:11px; outline:none; box-sizing:border-box;">
+          <select id="openTabsResolution" class="styled-select" style="width:100%; margin-bottom:8px;">
+            <option value="">No resolution override</option>
+          </select>
+          <div class="action-card" id="captureOpenTabsBtn" style="margin-bottom:4px;">
+            <div class="action-icon" style="background:#1F2937; color:#3B82F6;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                <polyline points="2 17 12 22 22 17"></polyline>
+                <polyline points="2 12 12 17 22 12"></polyline>
+              </svg>
+            </div>
+            <div class="action-text">
+              <div class="action-title">Capture View from Open Tabs</div>
+              <div class="action-desc" id="openTabsDesc">Capture all tabs in this window</div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -226,6 +250,16 @@
               Start Webm Recording
            </div>
         </div>
+
+        <div class="action-card" id="btnMergeVideos">
+          <div class="action-icon" style="background:#1F2937; color:#3B82F6;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
+          </div>
+          <div class="action-text">
+            <div class="action-title">Merge Videos</div>
+            <div class="action-desc">Combine recordings side-by-side</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -254,18 +288,6 @@
     </div>
 
     <style>@keyframes pulse { 0% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.95); } 100% { opacity: 1; transform: scale(1); } }</style>
-
-    <!-- Bottom Nav -->
-    <div class="bottom-nav">
-      <div class="nav-item active" id="navHome">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-        CAPTURE
-      </div>
-      <div class="nav-item" id="navMerge">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
-        MERGE
-      </div>
-    </div>
 
     <script src="popup.js"></script>
   </body>
