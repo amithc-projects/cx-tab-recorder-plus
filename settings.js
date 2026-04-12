@@ -56,7 +56,12 @@ async function refreshFolderDisplay() {
 
 // Load all settings from storage and populate the form
 function loadSettings() {
-  const keys = ['captureDefault', 'saveFileFormat', 'enableCaption', 'captionPos', 'captionText', 'enableWatermark', 'watermarkText'];
+  const keys = [
+    'captureDefault', 'saveFileFormat',
+    'enableCaption', 'captionPos', 'captionText',
+    'enableWatermark', 'watermarkText',
+    'preCaptureRules',
+  ];
   chrome.storage.local.get(keys, (result) => {
     const el = (id) => document.getElementById(id);
 
@@ -67,6 +72,8 @@ function loadSettings() {
     if (el('captionText')) el('captionText').value = result.captionText || '';
     if (el('enableWatermark')) el('enableWatermark').checked = !!result.enableWatermark;
     if (el('watermarkText')) el('watermarkText').value = result.watermarkText || '';
+
+    renderAllRules(result.preCaptureRules || []);
   });
 }
 
@@ -92,6 +99,146 @@ function bindAutoSave() {
     if (el) el.addEventListener(event, () => autosave(key, getValue(el)));
   }
 }
+
+// --- PRE-CAPTURE RULES ---
+
+const SCOPE_OPTIONS = [
+  { value: 'passwords',      label: 'Passwords' },
+  { value: 'usernames',      label: 'Usernames' },
+  { value: 'email',          label: 'Email addresses' },
+  { value: 'credit-cards',   label: 'Credit cards' },
+  { value: 'phone',          label: 'Phone numbers' },
+  { value: 'advertisements', label: 'Advertisements' },
+  { value: 'cookie-banners', label: 'Cookie banners' },
+  { value: 'custom',         label: 'Custom selectors…' },
+];
+
+const ACTION_OPTIONS = [
+  { value: 'blur', label: 'Blur' },
+  { value: 'hide', label: 'Hide' },
+];
+
+let preCaptureRules = [];
+let saveDebounceTimer = null;
+
+function saveRules() {
+  clearTimeout(saveDebounceTimer);
+  saveDebounceTimer = setTimeout(() => {
+    chrome.storage.local.set({ preCaptureRules });
+  }, 300);
+}
+
+function renderAllRules(rules) {
+  preCaptureRules = rules;
+  const list = document.getElementById('preCaptureRulesList');
+  if (!list) return;
+  list.innerHTML = '';
+  preCaptureRules.forEach((rule) => list.appendChild(buildRuleEl(rule)));
+}
+
+function buildRuleEl(rule) {
+  const wrap = document.createElement('div');
+  wrap.dataset.id = rule.id;
+
+  // Row: toggle + scope + action + delete
+  const row = document.createElement('div');
+  row.className = 'rule-row';
+
+  // Enable toggle
+  const toggleLabel = document.createElement('label');
+  toggleLabel.className = 'toggle-switch';
+  const toggleInput = document.createElement('input');
+  toggleInput.type = 'checkbox';
+  toggleInput.checked = rule.enabled;
+  toggleInput.addEventListener('change', () => {
+    rule.enabled = toggleInput.checked;
+    saveRules();
+  });
+  const toggleSpan = document.createElement('span');
+  toggleSpan.className = 'slider';
+  toggleLabel.appendChild(toggleInput);
+  toggleLabel.appendChild(toggleSpan);
+
+  // Scope select
+  const scopeSelect = document.createElement('select');
+  SCOPE_OPTIONS.forEach(({ value, label }) => {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = label;
+    if (value === rule.scope) opt.selected = true;
+    scopeSelect.appendChild(opt);
+  });
+
+  // Action select
+  const actionSelect = document.createElement('select');
+  actionSelect.style.width = '90px';
+  ACTION_OPTIONS.forEach(({ value, label }) => {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = label;
+    if (value === rule.action) opt.selected = true;
+    actionSelect.appendChild(opt);
+  });
+
+  // Delete button
+  const delBtn = document.createElement('button');
+  delBtn.className = 'btn-delete';
+  delBtn.textContent = '✕';
+  delBtn.addEventListener('click', () => {
+    preCaptureRules = preCaptureRules.filter(r => r.id !== rule.id);
+    renderAllRules(preCaptureRules);
+    saveRules();
+  });
+
+  row.appendChild(toggleLabel);
+  row.appendChild(scopeSelect);
+  row.appendChild(actionSelect);
+  row.appendChild(delBtn);
+  wrap.appendChild(row);
+
+  // Custom selector textarea (shown only when scope === 'custom')
+  const customWrap = document.createElement('div');
+  customWrap.className = 'rule-custom-wrap';
+  customWrap.style.display = rule.scope === 'custom' ? 'block' : 'none';
+  const textarea = document.createElement('textarea');
+  textarea.className = 'mono';
+  textarea.rows = 3;
+  textarea.placeholder = 'One selector per line, e.g.:\nname=password\n.profile .email\ninput[autocomplete="cc-number"]';
+  textarea.value = rule.selectors || '';
+  textarea.addEventListener('input', () => {
+    rule.selectors = textarea.value;
+    saveRules();
+  });
+  customWrap.appendChild(textarea);
+  wrap.appendChild(customWrap);
+
+  // Wire scope change to show/hide custom textarea
+  scopeSelect.addEventListener('change', () => {
+    rule.scope = scopeSelect.value;
+    customWrap.style.display = rule.scope === 'custom' ? 'block' : 'none';
+    saveRules();
+  });
+  actionSelect.addEventListener('change', () => {
+    rule.action = actionSelect.value;
+    saveRules();
+  });
+
+  return wrap;
+}
+
+document.getElementById('btnAddRule').addEventListener('click', () => {
+  const rule = {
+    id: crypto.randomUUID(),
+    scope: 'passwords',
+    selectors: '',
+    action: 'blur',
+    enabled: true,
+  };
+  preCaptureRules.push(rule);
+  const list = document.getElementById('preCaptureRulesList');
+  if (list) list.appendChild(buildRuleEl(rule));
+  saveRules();
+});
 
 // Folder picker
 document.getElementById('btnPickFolder').addEventListener('click', async () => {

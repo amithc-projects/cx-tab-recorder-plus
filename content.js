@@ -6,6 +6,7 @@ if (window.hasTabRecorderPlusRun) return;
 window.hasTabRecorderPlusRun = true;
 
 // --- VARIABLES ---
+let _preCaptureRefs = null; // held between APPLY_PRE_CAPTURE_RULES and UNDO_PRE_CAPTURE_RULES messages
 let timerInterval = null;
 let startTime = 0;
 let isRunning = false;
@@ -140,6 +141,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     restoreAfterCapture();
     sendResponse({success: true});
   }
+  else if (request.action === "APPLY_PRE_CAPTURE_RULES") {
+    applyPreCaptureRules().then(refs => {
+      _preCaptureRefs = refs;
+      sendResponse({ applied: refs.length });
+    });
+    return true; // async response
+  }
+  else if (request.action === "UNDO_PRE_CAPTURE_RULES") {
+    if (_preCaptureRefs) { undoPreCaptureRules(_preCaptureRefs); _preCaptureRefs = null; }
+  }
   else if (request.action === "SHOW_TOAST") {
     showToast(request.message);
   }
@@ -153,7 +164,10 @@ function performScreenshotSequence(toClipboard) {
 
   // 2. Small delay to let the UI hide, then capture with retry
   setTimeout(async () => {
+    const preCapture = await applyPreCaptureRules();
+    await new Promise(r => requestAnimationFrame(r)); // wait for repaint before screenshot
     const response = await captureWithRetry();
+    undoPreCaptureRules(preCapture);
     if (!response) {
       restoreAfterCapture();
       return;
@@ -230,6 +244,108 @@ function restoreAfterCapture() {
   if (toolbar) toolbar.style.visibility = 'visible';
   if (annotationContainer) annotationContainer.style.pointerEvents = 'all';
   if (cropRect) redrawCanvas();
+}
+
+// --- PRE-CAPTURE RULES ENGINE ---
+
+const PRECAPTURE_SCOPES = {
+  'passwords':      '[type="password"],[autocomplete="current-password"],[autocomplete="new-password"]',
+  'usernames':      '[autocomplete="username"],[name="username"],[name="user_name"]',
+  'email':          '[type="email"],[autocomplete="email"],[name="email"]',
+  'credit-cards':   '[autocomplete^="cc-"],[name="card-number"],[name="cardnumber"]',
+  'phone':          '[type="tel"],[autocomplete="tel"],[name="phone"]',
+  'advertisements': '.advertisement,ins.adsbygoogle,[id*="google_ads"],[class*="advert"],[data-ad]',
+  'cookie-banners': '#cookie-consent,.cookie-banner,.cookie-notice,[id*="cookieconsent"],.gdpr-banner',
+};
+
+// Extensible action map — add new actions here only; engine loop unchanged
+const CAPTURE_ACTIONS = {
+  // Chrome composites <input>/<select>/<textarea> on separate GPU layers, so
+  // element-level filter: blur() is bypassed in captureVisibleTab.
+  // A fixed-position backdrop-filter overlay is reliable for all element types.
+  blur: (el, refs) => {
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return; // off-screen, skip
+    const overlay = document.createElement('div');
+    overlay.dataset.trpOverlay = '1'; // prevent hideFixed() from suppressing it
+    overlay.style.cssText = [
+      'position:fixed',
+      `left:${rect.left}px`,
+      `top:${rect.top}px`,
+      `width:${rect.width}px`,
+      `height:${rect.height}px`,
+      'backdrop-filter:blur(10px)',
+      '-webkit-backdrop-filter:blur(10px)',
+      'background:rgba(128,128,128,0.25)',
+      'z-index:2147483646',
+      'pointer-events:none',
+    ].join(';');
+    document.body.appendChild(overlay);
+    refs.push({ _overlay: overlay });
+  },
+  hide: (el, refs) => {
+    refs.push({ el, prop: 'visibility', prev: el.style.visibility });
+    el.style.visibility = 'hidden';
+  },
+};
+
+// Normalises user shorthand to a valid CSS selector.
+// name=foo → [name="foo"]  |  id=foo → [id="foo"]  |  class=foo → .foo
+function normalizeSelector(raw) {
+  const s = raw.trim();
+  if (!s || s.startsWith('//')) return null;
+  const m = s.match(/^([\w-]+)\s*=\s*["']?([^"'\s]*)["']?$/);
+  if (m) {
+    const [, attr, val] = m;
+    if (attr === 'class') return '.' + val;
+    return `[${attr}="${val}"]`;
+  }
+  return s;
+}
+
+async function applyPreCaptureRules() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['preCaptureRules'], ({ preCaptureRules }) => {
+      const rules = preCaptureRules || [];
+      console.log('[TRP pre-capture] rules loaded from storage:', JSON.stringify(rules));
+      const refs = [];
+      for (const rule of rules) {
+        if (!rule.enabled) {
+          console.log('[TRP pre-capture] skipping disabled rule:', rule.scope, rule.action);
+          continue;
+        }
+        const handler = CAPTURE_ACTIONS[rule.action];
+        if (!handler) {
+          console.warn('[TRP pre-capture] unknown action:', rule.action);
+          continue;
+        }
+        const rawSelectors = rule.scope === 'custom'
+          ? (rule.selectors || '').split('\n').map(normalizeSelector).filter(Boolean).join(',')
+          : PRECAPTURE_SCOPES[rule.scope] || '';
+        console.log('[TRP pre-capture] rule scope=%s action=%s → selector: %s', rule.scope, rule.action, rawSelectors || '(empty)');
+        if (!rawSelectors) continue;
+        try {
+          const matched = document.querySelectorAll(rawSelectors);
+          console.log('[TRP pre-capture] matched %d element(s) for selector: %s', matched.length, rawSelectors);
+          matched.forEach((el, i) => {
+            console.log('[TRP pre-capture]   [%d] %s id=%s name=%s rect=%o', i, el.tagName, el.id, el.getAttribute('name'), el.getBoundingClientRect());
+            handler(el, refs);
+          });
+        } catch (e) {
+          console.warn('[TRP pre-capture] invalid selector "%s":', rawSelectors, e.message);
+        }
+      }
+      console.log('[TRP pre-capture] total refs applied:', refs.length);
+      resolve(refs);
+    });
+  });
+}
+
+function undoPreCaptureRules(refs) {
+  refs.forEach((ref) => {
+    if (ref._overlay) ref._overlay.remove();
+    else ref.el.style[ref.prop] = ref.prev;
+  });
 }
 
 // Image Processing Helper
@@ -412,14 +528,14 @@ async function generateFilename() {
   });
 }
 
-async function downloadImage(dataUrl) {
+async function downloadImage(dataUrl, intent) {
   const filename = await generateFilename();
   // Large dataUrls can exceed Chrome's 64MiB sendMessage limit for tall pages.
   // Use a port connection and send in 4MB chunks instead.
   const CHUNK = 4 * 1024 * 1024; // 4MB per message, well under 64MiB cap
-  console.log('[TRP content] uploading screenshot via port, filename=', filename, 'size=', dataUrl.length);
+  console.log('[TRP content] uploading screenshot via port, filename=', filename, 'intent=', intent, 'size=', dataUrl.length);
   const port = chrome.runtime.connect({ name: 'trp-screenshot-upload' });
-  port.postMessage({ action: 'SCREENSHOT_START', filename });
+  port.postMessage({ action: 'SCREENSHOT_START', filename, intent: intent || 'save' });
   for (let i = 0; i < dataUrl.length; i += CHUNK) {
     port.postMessage({ action: 'SCREENSHOT_CHUNK', data: dataUrl.slice(i, i + CHUNK) });
   }
@@ -505,7 +621,8 @@ async function performFullPageCapture(intent) {
   window.isTabRecorderCapturing = true;
   try {
   prepareForCapture();
-  
+  const preCapture = await applyPreCaptureRules();
+
   const styleEl = document.createElement('style');
   styleEl.textContent = `
     ::-webkit-scrollbar { display: none !important; } 
@@ -541,7 +658,7 @@ async function performFullPageCapture(intent) {
     let node;
     while ((node = allNodes.nextNode())) {
       const style = window.getComputedStyle(node);
-      if ((style.position === 'fixed' || style.position === 'sticky') && style.visibility !== 'hidden' && style.display !== 'none') {
+      if ((style.position === 'fixed' || style.position === 'sticky') && style.visibility !== 'hidden' && style.display !== 'none' && !node.dataset.trpOverlay) {
         hiddenElements.push({ el: node, css: node.getAttribute('style') });
         node.style.setProperty('visibility', 'hidden', 'important');
         node.style.setProperty('opacity', '0', 'important');
@@ -593,10 +710,11 @@ async function performFullPageCapture(intent) {
     else item.el.removeAttribute('style');
   }
   if (styleEl) styleEl.remove();
-  
+
   if (isWindow) window.scrollTo({ left: 0, top: 0, behavior: 'instant' });
   else scrollEl.scrollTop = 0;
-  
+
+  undoPreCaptureRules(preCapture);
   restoreAfterCapture();
 
   chrome.runtime.sendMessage({ type: 'CAPTURE_PROGRESS', phase: 'stitching', current: 0, total: snaps.length });
@@ -609,16 +727,11 @@ async function performFullPageCapture(intent) {
   }
   stitchedUrl = await applyBrandingToImage(stitchedUrl);
 
-  if (intent === 'copy' || intent === 'both') {
-    await copyToClipboard(stitchedUrl);
-  }
-  if (intent === 'save' || intent === 'both') {
-    chrome.runtime.sendMessage({ type: 'CAPTURE_PROGRESS', phase: 'saving' });
-    await downloadImage(stitchedUrl);
-  }
-
-  // Toast only for copy-only intent — save intent shows progress in the popup
-  if (intent === 'copy') showToast("Copied Full Page! ");
+  // Always route through downloadImage so the popup (which has focus/activation)
+  // can handle the clipboard write. copyToClipboard() fails here because user
+  // activation expires during the multi-frame capture sequence.
+  chrome.runtime.sendMessage({ type: 'CAPTURE_PROGRESS', phase: 'saving' });
+  await downloadImage(stitchedUrl, intent);
 
   } catch (err) {
     console.error("Full page capture error:", err);

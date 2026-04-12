@@ -217,13 +217,17 @@ async function triggerScreenshotFromPopup(intent) {
   if (intent) {
     chrome.tabs.sendMessage(tab.id, { action: "GET_CROP_AND_HIDE_UI" }, (response) => {
       const _ignored = chrome.runtime.lastError;
-      setTimeout(() => {
-        chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" }, async (dataUrl) => {
-          if (chrome.runtime.lastError || !dataUrl) {
-            chrome.tabs.sendMessage(tab.id, { action: "RESTORE_UI" }).catch(() => {});
-            window.close();
-            return;
-          }
+      // Apply pre-capture rules (blur/hide) in the content script, then wait for repaint
+      chrome.tabs.sendMessage(tab.id, { action: "APPLY_PRE_CAPTURE_RULES" }, () => {
+        const _ignored2 = chrome.runtime.lastError;
+        setTimeout(() => {
+          chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" }, async (dataUrl) => {
+            chrome.tabs.sendMessage(tab.id, { action: "UNDO_PRE_CAPTURE_RULES" }).catch(() => {});
+            if (chrome.runtime.lastError || !dataUrl) {
+              chrome.tabs.sendMessage(tab.id, { action: "RESTORE_UI" }).catch(() => {});
+              window.close();
+              return;
+            }
 
           if (response && response.cropRect) {
             dataUrl = await cropImageLocal(dataUrl, response.cropRect, response.innerWidth);
@@ -261,8 +265,9 @@ async function triggerScreenshotFromPopup(intent) {
           await new Promise(r => setTimeout(r, 600));
           window.close();
         });
-      }, 100);
-    });
+        }, 100); // repaint delay after APPLY_PRE_CAPTURE_RULES
+      });    // end APPLY_PRE_CAPTURE_RULES callback
+    });      // end GET_CROP_AND_HIDE_UI callback
   } else {
     chrome.tabs.sendMessage(tab.id, { action: "TRIGGER_SCREENSHOT" });
     window.close();
@@ -387,10 +392,11 @@ async function triggerFullTabCapture(intent) {
   await ensureContentScript(tab.id);
 
   const needsSave = (intent === 'save' || intent === 'both');
+  const needsCopy = (intent === 'copy' || intent === 'both');
   const fsaHandle = needsSave ? await getGrantedFSAHandle() : null;
-  console.log('[TRP popup] fullTab: fsaHandle=', fsaHandle ? fsaHandle.name : 'null');
+  console.log('[TRP popup] fullTab: fsaHandle=', fsaHandle ? fsaHandle.name : 'null', 'needsCopy=', needsCopy);
 
-  if (needsSave && fsaHandle) {
+  if ((needsSave && fsaHandle) || needsCopy) {
     // Keep popup alive — show progress UI
     showCapturingView();
     updateCaptureProgress({ phase: 'capturing', current: 0, total: 1 });
@@ -410,9 +416,25 @@ async function triggerFullTabCapture(intent) {
       sendResponse({ handled: true });
 
       (async () => {
+        const captureIntent = msg.intent || intent;
+        const captureNeedsSave = (captureIntent === 'save' || captureIntent === 'both');
+        const captureNeedsCopy = (captureIntent === 'copy' || captureIntent === 'both');
+
         updateCaptureProgress({ phase: 'saving' });
         const blob = await getScreenshotBlob(msg.key).catch(() => null);
-        if (blob) {
+        if (!blob) { window.close(); return; }
+
+        // Write to clipboard from popup context (has focus + user activation)
+        if (captureNeedsCopy) {
+          try {
+            await navigator.clipboard.write([ new ClipboardItem({ [blob.type]: blob }) ]);
+            console.log('[TRP popup] clipboard write succeeded');
+          } catch (err) {
+            console.error('[TRP popup] clipboard write failed:', err);
+          }
+        }
+
+        if (captureNeedsSave && fsaHandle) {
           const ok = await writeFSAFromBlob(fsaHandle, blob, msg.filename);
           if (ok) {
             await deleteScreenshotBlob(msg.key).catch(() => {});
@@ -422,7 +444,16 @@ async function triggerFullTabCapture(intent) {
             // Blob stays in IDB; tell background to fall back to Downloads
             chrome.runtime.sendMessage({ action: 'SAVE_SCREENSHOT_FALLBACK', key: msg.key, filename: msg.filename, tabId: tab.id });
           }
+        } else if (captureNeedsSave) {
+          // No FSA handle — fall back to Downloads via background
+          chrome.runtime.sendMessage({ action: 'SAVE_SCREENSHOT_FALLBACK', key: msg.key, filename: msg.filename, tabId: tab.id });
+        } else {
+          // Copy-only — blob no longer needed
+          await deleteScreenshotBlob(msg.key).catch(() => {});
+          updateCaptureProgress({ phase: 'done' });
+          await new Promise(r => setTimeout(r, 600));
         }
+
         window.close();
       })();
     });
@@ -430,8 +461,8 @@ async function triggerFullTabCapture(intent) {
     chrome.tabs.sendMessage(tab.id, { action: "CAPTURE_FULL_PAGE", intent });
     // Do NOT close popup — it stays alive until onCaptureReady fires
   } else {
-    // Copy-only or no FSA handle: close popup immediately, offscreen handles any save
-    if (needsSave) await ensureOffscreenExists();
+    // No FSA and no clipboard needed: close popup immediately, offscreen handles save
+    await ensureOffscreenExists();
     chrome.tabs.sendMessage(tab.id, { action: "CAPTURE_FULL_PAGE", intent });
     window.close();
   }

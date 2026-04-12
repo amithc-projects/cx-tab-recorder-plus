@@ -34,6 +34,30 @@
     input[type="text"].mono { font-family: monospace; font-size: 12px; }
     .full-width { width: 100%; display: block; margin-top: 8px; }
 
+    textarea.mono {
+      background: #374151; color: #F9FAFB; border: 1px solid #4B5563;
+      padding: 8px 10px; border-radius: 6px; font-size: 12px;
+      font-family: monospace; outline: none; resize: vertical;
+      width: 100%; display: block; margin-top: 6px; line-height: 1.6;
+    }
+    textarea.mono:focus { border-color: #3B82F6; }
+    textarea.mono::placeholder { color: #4B5563; }
+
+    .rule-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .rule-row select { flex: 1; min-width: 0; }
+    .rule-row .btn-delete {
+      background: none; border: 1px solid #374151; color: #6B7280;
+      border-radius: 6px; padding: 5px 9px; cursor: pointer; font-size: 13px; flex-shrink: 0;
+    }
+    .rule-row .btn-delete:hover { color: #F87171; border-color: #F87171; }
+    .btn-add-rule {
+      background: transparent; color: #9CA3AF; border: 1px dashed #374151;
+      border-radius: 7px; padding: 8px; width: 100%; cursor: pointer;
+      font-size: 12px; font-family: inherit; margin-top: 4px; transition: 0.15s;
+    }
+    .btn-add-rule:hover { border-color: #3B82F6; color: #3B82F6; }
+    .rule-custom-wrap { margin-bottom: 10px; }
+
     .btn-primary { background: #2563EB; color: white; border: none; padding: 10px 16px; border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background 0.15s; width: 100%; }
     .btn-primary:hover { background: #1D4ED8; }
 
@@ -127,6 +151,16 @@
           <div class="field-label">Diagonal Watermark</div>
         </div>
         <input type="text" id="watermarkText" class="full-width" placeholder="CONFIDENTIAL">
+      </div>
+    </div>
+
+    <!-- Pre-Capture Rules -->
+    <div class="section">
+      <div class="section-label">Pre-Capture Rules</div>
+      <div class="card">
+        <div class="field-hint" style="margin-bottom: 14px;">Rules are applied before every capture and reversed after. Each rule targets a <strong style="color:#9CA3AF;">scope</strong> and applies an <strong style="color:#9CA3AF;">action</strong>.</div>
+        <div id="preCaptureRulesList"></div>
+        <button class="btn-add-rule" id="btnAddRule">+ Add Rule</button>
       </div>
     </div>
 

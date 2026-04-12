@@ -335,10 +335,12 @@ chrome.runtime.onConnect.addListener((port) => {
     const tabId = port.sender && port.sender.tab ? port.sender.tab.id : null;
     const chunks = [];
     let filename = '';
+    let intent = 'save';
 
     port.onMessage.addListener((msg) => {
       if (msg.action === 'SCREENSHOT_START') {
         filename = msg.filename;
+        intent = msg.intent || 'save';
       } else if (msg.action === 'SCREENSHOT_CHUNK') {
         chunks.push(msg.data);
       } else if (msg.action === 'SCREENSHOT_END') {
@@ -359,14 +361,14 @@ chrome.runtime.onConnect.addListener((port) => {
             return;
           }
 
-          console.log('[TRP bg] sending FULL_PAGE_CAPTURE_READY, key=', key);
-          chrome.runtime.sendMessage({ type: 'FULL_PAGE_CAPTURE_READY', key, filename, tabId }, (response) => {
+          console.log('[TRP bg] sending FULL_PAGE_CAPTURE_READY, key=', key, 'intent=', intent);
+          chrome.runtime.sendMessage({ type: 'FULL_PAGE_CAPTURE_READY', key, filename, intent, tabId }, (response) => {
             const _err = chrome.runtime.lastError;
             if (_err || !response?.handled) {
               console.log('[TRP bg] popup not alive, falling back to offscreen/Downloads');
               (async () => {
                 await ensureOffscreenDoc();
-                chrome.runtime.sendMessage({ type: 'PROCESS_SCREENSHOT_FROM_IDB', key, filename, tabId });
+                chrome.runtime.sendMessage({ type: 'PROCESS_SCREENSHOT_FROM_IDB', key, filename, intent, tabId });
               })();
             } else {
               console.log('[TRP bg] popup acknowledged — it will handle the FSA write');
