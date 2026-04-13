@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>File Manager — OmniCapt</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Inter', sans-serif; background: #111827; color: #F9FAFB; display: flex; flex-direction: column; }
+
+    .header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 16px;
+      background: #1F2937;
+      border-bottom: 1px solid #374151;
+      flex-shrink: 0;
+    }
+    .logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; }
+    .header-divider { width: 1px; height: 20px; background: #374151; flex-shrink: 0; }
+
+    .folder-info { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+    .folder-label { font-size: 11px; color: #6B7280; white-space: nowrap; }
+    .folder-name { font-size: 13px; font-weight: 600; color: #93C5FD; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .folder-path { font-size: 11px; color: #6B7280; margin-left: 4px; }
+
+    #btnGrantAccess {
+      display: none;
+      background: #2563EB; color: white; border: none;
+      padding: 6px 14px; border-radius: 6px;
+      font-size: 12px; font-weight: 600; cursor: pointer;
+      font-family: inherit; white-space: nowrap; flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    #btnGrantAccess:hover { background: #1D4ED8; }
+
+    #noFolderWarning {
+      display: none;
+      align-items: center; gap: 10px;
+      flex: 1;
+    }
+    .warn-text { font-size: 13px; color: #F87171; }
+    .warn-link {
+      font-size: 12px; color: #93C5FD; cursor: pointer;
+      text-decoration: underline; white-space: nowrap;
+    }
+
+    #statusBar {
+      display: none;
+      font-size: 11px; color: #F87171;
+      padding: 6px 16px;
+      background: #1F1010;
+      border-bottom: 1px solid #7F1D1D;
+      flex-shrink: 0;
+    }
+
+    .component-container {
+      flex: 1; width: 100%; overflow: hidden;
+    }
+    sidekick-manager {
+      display: block; width: 100%; height: 100%;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="logo">
+      <img src="icons/icon128.png" width="22" height="22" style="display:block;">
+      File Manager
+    </div>
+    <div class="header-divider"></div>
+
+    <div class="folder-info" id="folderInfoBar" style="display:none;">
+      <span class="folder-label">Folder:</span>
+      <span class="folder-name" id="folderNameDisplay"></span>
+      <span class="folder-path" id="folderPathDisplay"></span>
+    </div>
+
+    <div id="noFolderWarning">
+      <span class="warn-text">No save folder configured.</span>
+      <span class="warn-link" id="btnGoToSettings">Open Settings</span>
+    </div>
+
+    <button id="btnGrantAccess">Grant access to folder</button>
+  </div>
+
+  <div id="statusBar"></div>
+
+  <div class="component-container">
+    <sidekick-manager></sidekick-manager>
+  </div>
+
+  <script src="sidekick-manager.iife.js"></script>
+  <script src="filemanager.js"></script>
+</body>
+</html>

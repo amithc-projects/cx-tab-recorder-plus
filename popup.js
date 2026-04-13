@@ -1,6 +1,19 @@
 // popup.js
 const setupView = document.getElementById('setupView');
 const recordingView = document.getElementById('recordingView');
+
+// Track unique subfolder paths for files saved to FSA during this session
+const _savedFolderPaths = [];
+let _showingDoneState = false;
+
+function trackSavedPath(filename) {
+  const parts = filename.split('/');
+  parts.pop(); // remove the filename leaf
+  const dir = parts.join('/'); // e.g. "www.bbc.co.uk/sport"
+  if (!_savedFolderPaths.includes(dir)) {
+    _savedFolderPaths.push(dir);
+  }
+}
 const viewCapture = document.getElementById('viewCapture');
 const viewRecord = document.getElementById('viewRecord');
 
@@ -15,13 +28,12 @@ function showCapturingView() {
 }
 
 // Check for a pending save result (set by background when offscreen completes a Capture Area save).
-// If present, show the "Saved!" done state briefly and close — no toast needed.
+// If present, show the "Saved!" done state and let the user dismiss it.
 chrome.storage.session.get('pendingCaptureResult', (result) => {
   if (result && result.pendingCaptureResult === 'done') {
     chrome.storage.session.remove('pendingCaptureResult');
     showCapturingView();
     updateCaptureProgress({ phase: 'done' });
-    setTimeout(() => window.close(), 1200);
     return; // skip normal init
   }
   if (result && result.pendingCaptureResult === 'copied') {
@@ -162,6 +174,7 @@ async function writeFSAFromBlob(handle, blob, filename) {
     await writable.write(blob);
     await writable.close();
     console.log('[TRP popup] writeFSAFromBlob SUCCESS');
+    trackSavedPath(filename);
     return true;
   } catch (err) {
     console.warn('[TRP popup] writeFSAFromBlob FAILED:', err);
@@ -188,6 +201,7 @@ async function writeFSA(handle, dataUrl, filename) {
     await writable.write(blob);
     await writable.close();
     console.log('[TRP popup] writeFSA: SUCCESS');
+    trackSavedPath(filename);
     return true;
   } catch (err) {
     console.warn('[TRP popup] writeFSA FAILED:', err);
@@ -266,8 +280,6 @@ async function triggerScreenshotFromPopup(intent) {
 
           updateCaptureProgress({ phase: 'done' });
           chrome.tabs.sendMessage(tab.id, { action: "RESTORE_UI" }).catch(() => {});
-          await new Promise(r => setTimeout(r, 600));
-          window.close();
         });
         }, 100); // repaint delay after APPLY_PRE_CAPTURE_RULES
       });    // end APPLY_PRE_CAPTURE_RULES callback
@@ -377,6 +389,41 @@ function updateCaptureProgress({ phase, current = 0, total = 0, urlIndex = 0, ur
     label.textContent = 'Saved!';
     detail.textContent = '';
     wrap.style.display = 'none';
+    _showingDoneState = true;
+    // Swap icon to checkmark
+    const iconProgress = document.getElementById('captureIconProgress');
+    const iconDone = document.getElementById('captureIconDone');
+    if (iconProgress) iconProgress.style.display = 'none';
+    if (iconDone) iconDone.style.display = 'block';
+    // Hide the "keep open" hint
+    const hint = document.getElementById('captureHint');
+    if (hint) hint.style.display = 'none';
+    // Populate folder links and show done actions
+    const doneEl = document.getElementById('captureDoneActions');
+    const list = document.getElementById('savedFoldersList');
+    if (doneEl && list) {
+      list.innerHTML = '';
+      const paths = _savedFolderPaths.length > 0 ? _savedFolderPaths : [''];
+      paths.forEach(folderPath => {
+        const link = document.createElement('div');
+        link.className = 'saved-folder-link';
+        const folderSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
+        link.innerHTML = folderSvg + `<span class="folder-path-text">${folderPath || 'Browse saved files'}</span>`;
+        link.title = folderPath ? `Open "${folderPath}" in File Manager` : 'Open File Manager';
+        link.addEventListener('click', () => {
+          const url = chrome.runtime.getURL('filemanager.html') +
+            (folderPath ? '?path=' + encodeURIComponent(folderPath) : '');
+          chrome.tabs.create({ url });
+        });
+        list.appendChild(link);
+      });
+      doneEl.style.display = 'block';
+    }
+    // Wire dismiss button
+    const dismissBtn = document.getElementById('btnDismissCapture');
+    if (dismissBtn) {
+      dismissBtn.onclick = () => window.close();
+    }
   } else if (phase === 'copying') {
     label.textContent = 'Copying to clipboard...';
     detail.textContent = '';
@@ -454,7 +501,6 @@ async function triggerFullTabCapture(intent) {
             await deleteScreenshotBlob(msg.key).catch(() => {});
             await saveCompanionJson(fsaHandle, msg.filename, tab.id, null, 'full');
             updateCaptureProgress({ phase: 'done' });
-            await new Promise(r => setTimeout(r, 600));
           } else {
             // Blob stays in IDB; tell background to fall back to Downloads
             chrome.runtime.sendMessage({ action: 'SAVE_SCREENSHOT_FALLBACK', key: msg.key, filename: msg.filename, tabId: tab.id });
@@ -468,10 +514,9 @@ async function triggerFullTabCapture(intent) {
           // Copy-only — blob no longer needed
           await deleteScreenshotBlob(msg.key).catch(() => {});
           updateCaptureProgress({ phase: 'done' });
-          await new Promise(r => setTimeout(r, 600));
         }
 
-        window.close();
+        if (!_showingDoneState) window.close();
       })();
     });
 
@@ -1117,8 +1162,6 @@ async function captureUrlSet(set, intent) {
   }
 
   updateCaptureProgress({ phase: 'done' });
-  await new Promise(r => setTimeout(r, 800));
-  window.close();
 }
 
 // Attach Action Listeners
@@ -1191,6 +1234,19 @@ if (document.getElementById('settingsBtn')) {
     chrome.tabs.create({ url: 'settings.html' });
   });
 }
+
+// Show browse-files button only when a save folder is configured
+(async () => {
+  const btn = document.getElementById('browseFilesBtn');
+  if (!btn) return;
+  try {
+    const handle = await getHandle();
+    if (handle) btn.style.display = 'block';
+  } catch (_) {}
+  btn.addEventListener('click', () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('filemanager.html') });
+  });
+})();
 
 if (document.getElementById('captureSetBtn')) {
   document.getElementById('captureSetBtn').addEventListener('click', async (e) => {
@@ -1364,8 +1420,6 @@ async function captureOpenTabs(mode, groupId, urlPattern, resolutionSetId, inten
   }
 
   updateCaptureProgress({ phase: 'done' });
-  await new Promise(r => setTimeout(r, 800));
-  window.close();
 }
 
 // Update the description label and live tab count in the Open Tabs section.
