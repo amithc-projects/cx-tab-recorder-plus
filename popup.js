@@ -2,17 +2,22 @@
 const setupView = document.getElementById('setupView');
 const recordingView = document.getElementById('recordingView');
 
-// Track unique subfolder paths for files saved to FSA during this session
-const _savedFolderPaths = [];
+// Track files saved to FSA this session: Map<folderPath, filename[]>
+// folderPath = all path segments except the leaf, e.g. "www.bbc.co.uk/sport"
+// filename   = just the leaf, e.g. "2024-01-01-BBC Sport.png"
+const _savedFolderFiles = new Map();
 let _showingDoneState = false;
 
-function trackSavedPath(filename) {
-  const parts = filename.split('/');
-  parts.pop(); // remove the filename leaf
-  const dir = parts.join('/'); // e.g. "www.bbc.co.uk/sport"
-  if (!_savedFolderPaths.includes(dir)) {
-    _savedFolderPaths.push(dir);
+function trackSavedPath(fullFilename) {
+  // Only track image/video files — skip companion JSON metadata files
+  if (/\.json$/i.test(fullFilename)) return;
+  const parts = fullFilename.split('/');
+  const leaf = parts.pop();               // e.g. "2024-01-01-BBC Sport.png"
+  const dir = parts.join('/');            // e.g. "www.bbc.co.uk/sport"
+  if (!_savedFolderFiles.has(dir)) {
+    _savedFolderFiles.set(dir, []);
   }
+  _savedFolderFiles.get(dir).push(leaf);
 }
 const viewCapture = document.getElementById('viewCapture');
 const viewRecord = document.getElementById('viewRecord');
@@ -403,17 +408,34 @@ function updateCaptureProgress({ phase, current = 0, total = 0, urlIndex = 0, ur
     const list = document.getElementById('savedFoldersList');
     if (doneEl && list) {
       list.innerHTML = '';
-      const paths = _savedFolderPaths.length > 0 ? _savedFolderPaths : [''];
-      paths.forEach(folderPath => {
+      const entries = _savedFolderFiles.size > 0
+        ? Array.from(_savedFolderFiles.entries())   // [[folderPath, [file, ...]], ...]
+        : [['', []]];                               // fallback: generic browse link
+
+      entries.forEach(([folderPath, files]) => {
+        const singleFile = files.length === 1 ? files[0] : null;
+        // Single file → filmstrip focused on that file; multiple → grid view
+        const params = new URLSearchParams();
+        if (folderPath) params.set('path', folderPath);
+        params.set('sortBy', 'date');
+        params.set('sortAsc', 'false');
+        params.set('viewMode', singleFile ? 'filmstrip' : 'grid');
+        if (singleFile) params.set('file', singleFile);
+
         const link = document.createElement('div');
         link.className = 'saved-folder-link';
-        const folderSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
-        link.innerHTML = folderSvg + `<span class="folder-path-text">${folderPath || 'Browse saved files'}</span>`;
-        link.title = folderPath ? `Open "${folderPath}" in File Manager` : 'Open File Manager';
+        const icon = singleFile
+          ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`
+          : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
+        const label = singleFile
+          ? (folderPath ? `${folderPath}/${singleFile}` : singleFile)
+          : (folderPath || 'Browse saved files');
+        link.innerHTML = icon + `<span class="folder-path-text">${label}</span>`;
+        link.title = singleFile
+          ? `View "${singleFile}" in filmstrip`
+          : `Browse "${folderPath || 'saved files'}" in grid view`;
         link.addEventListener('click', () => {
-          const url = chrome.runtime.getURL('filemanager.html') +
-            (folderPath ? '?path=' + encodeURIComponent(folderPath) : '');
-          chrome.tabs.create({ url });
+          chrome.tabs.create({ url: chrome.runtime.getURL('filemanager.html') + '?' + params.toString() });
         });
         list.appendChild(link);
       });

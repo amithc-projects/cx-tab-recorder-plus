@@ -97,8 +97,32 @@ async function init() {
     });
   }
 
-  const deepPath = new URLSearchParams(location.search).get('path');
+  // Parse deep-link params from query string
+  const qs = new URLSearchParams(location.search);
+  const deepPath    = qs.get('path');
+  const deepFile    = qs.get('file');
+  const deepView    = qs.get('viewMode');   // 'grid' | 'list' | 'filmstrip'
+  const deepSortBy  = qs.get('sortBy');     // 'name' | 'type' | 'date' | 'size'
+  const deepSortAsc = qs.get('sortAsc');    // 'true' | 'false'
+
+  // Build the navigate options object (only include defined params)
+  function buildNavOptions() {
+    const opts = {};
+    if (deepFile)    opts.filename = deepFile;
+    if (deepView)    opts.viewMode = deepView;
+    if (deepSortBy)  opts.sortBy   = deepSortBy;
+    if (deepSortAsc !== null) opts.sortAsc = deepSortAsc === 'true';
+    return Object.keys(opts).length > 0 ? opts : undefined;
+  }
+
   let _deepNavDone = false;
+
+  function attemptDeepNav() {
+    if (!deepPath || _deepNavDone) return;
+    _deepNavDone = true;
+    const opts = buildNavOptions();
+    manager.navigate(deepPath, opts);
+  }
 
   // Listen for sidekick events
   manager.addEventListener('sidekick:ready', () => {
@@ -107,9 +131,7 @@ async function init() {
       tryPassHandleToComponent(manager, folderHandle);
     }
     // Attempt early navigate — may be a no-op if component is still in welcome state
-    if (deepPath && !_deepNavDone) {
-      manager.navigate(deepPath);
-    }
+    attemptDeepNav();
   });
 
   manager.addEventListener('sidekick:workspace', (e) => {
@@ -118,11 +140,8 @@ async function init() {
     if (pathEl && e.detail && e.detail.folderName) {
       pathEl.textContent = e.detail.pathLength > 1 ? `/ ${e.detail.folderName}` : '';
     }
-    // First workspace event means the root folder is now loaded — navigate to deep path
-    if (deepPath && !_deepNavDone) {
-      _deepNavDone = true;
-      manager.navigate(deepPath);
-    }
+    // First workspace event = root folder is loaded — navigate to deep path
+    attemptDeepNav();
   });
 
   manager.addEventListener('sidekick:error', (e) => {
