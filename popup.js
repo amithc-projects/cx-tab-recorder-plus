@@ -34,9 +34,13 @@ function showCapturingView() {
 
 // Check for a pending save result (set by background when offscreen completes a Capture Area save).
 // If present, show the "Saved!" done state and let the user dismiss it.
-chrome.storage.session.get('pendingCaptureResult', (result) => {
+chrome.storage.session.get(['pendingCaptureResult', 'pendingCaptureFilename'], (result) => {
   if (result && result.pendingCaptureResult === 'done') {
-    chrome.storage.session.remove('pendingCaptureResult');
+    chrome.storage.session.remove(['pendingCaptureResult', 'pendingCaptureFilename']);
+    // Pre-populate file tracking so the done panel can show the correct deep link
+    if (result.pendingCaptureFilename) {
+      trackSavedPath(result.pendingCaptureFilename);
+    }
     showCapturingView();
     updateCaptureProgress({ phase: 'done' });
     return; // skip normal init

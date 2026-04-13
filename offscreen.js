@@ -114,7 +114,7 @@ async function processNativeDownload(dataUrl, filename, tabId) {
 
   // Reopen the popup to show the "Saved!" done state (no toast).
   if (savedOk) {
-    chrome.runtime.sendMessage({ action: "CAPTURE_SAVE_DONE" });
+    chrome.runtime.sendMessage({ action: "CAPTURE_SAVE_DONE", filename });
   }
 }
 
@@ -172,7 +172,7 @@ async function processScreenshotFromIDB(key, filename, tabId) {
   }
 
   if (savedOk) {
-    chrome.runtime.sendMessage({ action: "CAPTURE_SAVE_DONE" });
+    chrome.runtime.sendMessage({ action: "CAPTURE_SAVE_DONE", filename });
   }
 }
 
@@ -217,7 +217,7 @@ async function processRecordingFromIDB(key, filename, fallbackUrl) {
   }
 
   if (savedOk) {
-    chrome.runtime.sendMessage({ action: 'CAPTURE_SAVE_DONE' });
+    chrome.runtime.sendMessage({ action: 'CAPTURE_SAVE_DONE', filename });
   }
 }
 

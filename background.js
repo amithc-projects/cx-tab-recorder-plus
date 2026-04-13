@@ -225,7 +225,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Offscreen completed a save. Reopen popup to show "Saved!" done state in the progress UI.
     (async () => {
       try {
-        await chrome.storage.session.set({ pendingCaptureResult: 'done' });
+        await chrome.storage.session.set({ pendingCaptureResult: 'done', pendingCaptureFilename: message.filename || null });
         await chrome.action.openPopup();
       } catch (e) {
         // chrome.action.openPopup() requires Chrome 127+; silently skip on older builds
