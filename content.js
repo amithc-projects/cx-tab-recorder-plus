@@ -744,6 +744,14 @@ async function performFullPageCapture(intent) {
     frameIndex++;
     chrome.runtime.sendMessage({ type: 'CAPTURE_PROGRESS', phase: 'capturing', current: frameIndex, total: estimatedFrames });
 
+    // Check if the user clicked "Stop & Save Now" in the popup
+    const stopCheck = await new Promise(resolve => {
+      chrome.runtime.sendMessage({ type: 'CAPTURE_STOP_CHECK' }, (resp) => {
+        resolve(resp && resp.stop ? resp.stop : false);
+      });
+    });
+    if (stopCheck) break;
+
     const nextY = actualY + viewportHeight;
     if (nextY >= totalHeight) break;
 

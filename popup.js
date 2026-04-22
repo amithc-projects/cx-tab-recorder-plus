@@ -8,6 +8,10 @@ const recordingView = document.getElementById('recordingView');
 const _savedFolderFiles = new Map();
 let _showingDoneState = false;
 
+// Set to true when the user clicks "Stop & Save Now" during a full-page capture.
+// The content script polls this via CAPTURE_STOP_CHECK messages.
+let _captureStopRequested = false;
+
 function trackSavedPath(fullFilename) {
   // Only track image/video files — skip companion JSON metadata files
   if (/\.json$/i.test(fullFilename)) return;
@@ -28,8 +32,11 @@ const tabCapture = document.getElementById('tabCapture');
 
 function showCapturingView() {
   setupView.classList.add('hidden');
-
   document.getElementById('capturingView').classList.remove('hidden');
+  // Reset stop flag and show the stop button for new captures
+  _captureStopRequested = false;
+  const stopWrap = document.getElementById('captureStopWrap');
+  if (stopWrap) stopWrap.style.display = 'block';
 }
 
 // Check for a pending save result (set by background when offscreen completes a Capture Area save).
@@ -117,23 +124,42 @@ document.addEventListener('keydown', (e) => {
   } catch(e) {}
 });
 
-// Ensure content script is loaded in the tab. If not, inject content.js and wait briefly.
+// Ensure content script is loaded in the tab and ready to handle messages.
+// Retries the PING up to 10 times with 200ms gaps before falling back to injection.
 async function ensureContentScript(tabId) {
-  return new Promise((resolve) => {
-    chrome.tabs.sendMessage(tabId, { action: 'PING' }, (response) => {
-      if (chrome.runtime.lastError) {
-        chrome.scripting.executeScript(
-          { target: { tabId }, files: ['content.js'] },
-          () => {
-            const _ignored = chrome.runtime.lastError;
-            setTimeout(() => resolve(true), 80);
-          }
-        );
-      } else {
-        resolve(true);
-      }
+  // First try pinging — if it responds, we're done.
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const alive = await new Promise(resolve => {
+      chrome.tabs.sendMessage(tabId, { action: 'PING' }, (response) => {
+        if (chrome.runtime.lastError || !response) resolve(false);
+        else resolve(true);
+      });
     });
+    if (alive) return true;
+    await new Promise(r => setTimeout(r, 200));
+  }
+
+  // Script not responding — inject it and wait for it to be ready.
+  await new Promise(resolve => {
+    chrome.scripting.executeScript(
+      { target: { tabId }, files: ['content.js'] },
+      () => { const _ignored = chrome.runtime.lastError; resolve(); }
+    );
   });
+
+  // After injection, keep pinging until it responds (up to 3s).
+  for (let attempt = 0; attempt < 15; attempt++) {
+    await new Promise(r => setTimeout(r, 200));
+    const alive = await new Promise(resolve => {
+      chrome.tabs.sendMessage(tabId, { action: 'PING' }, (response) => {
+        if (chrome.runtime.lastError || !response) resolve(false);
+        else resolve(true);
+      });
+    });
+    if (alive) return true;
+  }
+
+  return false;
 }
 
 // Obtain FSA handle with 'granted' permission while user activation is fresh.
@@ -390,6 +416,9 @@ function updateCaptureProgress({ phase, current = 0, total = 0, urlIndex = 0, ur
     detail.textContent = total > 0 ? `${current} of ${total} frames loaded` : '';
     wrap.style.display = 'block';
     fill.style.width = pct + '%';
+    // Hide stop button once we're past the scroll phase
+    const stopWrap = document.getElementById('captureStopWrap');
+    if (stopWrap) stopWrap.style.display = 'none';
   } else if (phase === 'saving') {
     label.textContent = 'Saving...';
     detail.textContent = 'Writing to folder';
@@ -959,16 +988,27 @@ async function saveCompanionJson(fsaHandle, imageFilename, tabId, resolution, ca
 async function navigateAndWait(tabId, url) {
   return new Promise((resolve) => {
     let resolved = false;
-    function listener(updatedTabId, changeInfo) {
-      if (updatedTabId === tabId && changeInfo.status === 'complete') {
-        if (resolved) return;
-        resolved = true;
-        chrome.tabs.onUpdated.removeListener(listener);
-        setTimeout(resolve, 800);
-      }
+    let seenLoading = false; // track that we saw the navigation start
+
+    function done() {
+      if (resolved) return;
+      resolved = true;
+      chrome.tabs.onUpdated.removeListener(listener);
+      // Extra settle time so the rendering pipeline is ready for capture.
+      setTimeout(resolve, 1000);
     }
+
+    function listener(updatedTabId, changeInfo) {
+      if (updatedTabId !== tabId) return;
+      // Mark that the navigation actually started (guards against stale 'complete' events
+      // from a previous page firing before our new navigation begins).
+      if (changeInfo.status === 'loading') seenLoading = true;
+      if (changeInfo.status === 'complete' && seenLoading) done();
+    }
+
     chrome.tabs.onUpdated.addListener(listener);
     chrome.tabs.update(tabId, { url });
+
     // Safety timeout — resolve anyway if the page never fires 'complete'
     setTimeout(() => {
       if (!resolved) {
@@ -1071,7 +1111,21 @@ async function captureOneUrlFull(tabId, fsaHandle, intent, resolution = null) {
       done();
     }, 120000);
 
-    chrome.tabs.sendMessage(tabId, { action: 'CAPTURE_FULL_PAGE', intent });
+    // Send the capture command. If the content script isn't listening yet
+    // (chrome.runtime.lastError fires), re-inject and retry once.
+    chrome.tabs.sendMessage(tabId, { action: 'CAPTURE_FULL_PAGE', intent }, () => {
+      if (chrome.runtime.lastError) {
+        console.warn('[TRP popup] CAPTURE_FULL_PAGE: content script not ready, re-injecting...');
+        chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] }, () => {
+          const _ignored = chrome.runtime.lastError;
+          setTimeout(() => {
+            if (!settled) chrome.tabs.sendMessage(tabId, { action: 'CAPTURE_FULL_PAGE', intent }, () => {
+              const _ignored2 = chrome.runtime.lastError;
+            });
+          }, 300);
+        });
+      }
+    });
   });
 }
 
@@ -1137,6 +1191,14 @@ async function captureUrlSet(set, intent) {
   const totalCaptures = set.urls.length * resolutions.length;
   let capturesDone = 0;
 
+  // captureVisibleTab requires the tab to be active and rendered on screen.
+  // Ensure the target tab is active before we start the batch so the first URL
+  // doesn't get skipped when the user hasn't manually visited it yet.
+  if (set.defaultAction === 'visible') {
+    await chrome.tabs.update(tab.id, { active: true });
+    await new Promise(r => setTimeout(r, 200));
+  }
+
   showCapturingView();
 
   // NOTE: Chrome detaches the debugger on every navigation, so we must
@@ -1146,6 +1208,11 @@ async function captureUrlSet(set, intent) {
       const url = set.urls[i];
       let hostname = url;
       try { hostname = new URL(url).hostname; } catch (e) {}
+
+      // Reset stop flag and re-enable the button for each new URL in the batch.
+      _captureStopRequested = false;
+      const stopBtn = document.getElementById('btnStopCapture');
+      if (stopBtn) { stopBtn.disabled = false; stopBtn.textContent = 'Stop & Save Now'; }
 
       updateCaptureProgress({ phase: 'urlset-navigating', urlIndex: capturesDone + 1, urlTotal: totalCaptures, urlHost: hostname });
       await navigateAndWait(tab.id, url);
@@ -1554,3 +1621,23 @@ if (document.getElementById('captureOpenTabsBtn')) {
     captureOpenTabs(mode, groupId, urlPattern, resId, intent);
   });
 }
+
+
+// Stop & Save Now button — signals the content script to abort the scroll loop
+// and stitch whatever frames have been captured so far.
+const btnStopCapture = document.getElementById('btnStopCapture');
+if (btnStopCapture) {
+  btnStopCapture.addEventListener('click', () => {
+    _captureStopRequested = true;
+    btnStopCapture.disabled = true;
+    btnStopCapture.textContent = 'Stopping...';
+  });
+}
+
+// The content script polls this during the scroll loop.
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'CAPTURE_STOP_CHECK') {
+    sendResponse({ stop: _captureStopRequested });
+    return true;
+  }
+});
