@@ -298,6 +298,24 @@
       </div>
     </div>
 
+    <!-- Send to Cloud -->
+    <div class="section" id="section-send-to-cloud">
+      <div class="section-label">Send to Cloud</div>
+      <div class="card">
+        <div class="field-hint" style="margin-bottom: 14px;">
+          Configure the
+          <strong style="color:#9CA3AF;">send-to-cloud</strong>
+          facade so the file manager can upload selected screenshots to Jira, Slack, GitHub, Confluence, Miro, S3, Google Drive, or Contentful. Leave blank to hide the upload button.
+        </div>
+        <div class="field-label" style="margin-bottom:6px;">Facade endpoint</div>
+        <input type="text" id="stcEndpoint" class="mono full-width" placeholder="https://send-to-cloud.localhost/api/v1">
+
+        <div class="field-label" style="margin-top:14px; margin-bottom:6px;">Bearer token (JWT)</div>
+        <input type="text" id="stcToken" class="mono full-width" placeholder="eyJhbGciOi...  (or 'dummy' if DEV_AUTH_BYPASS is set on the server)">
+        <div class="field-hint" style="margin-top:6px;">Stored locally in your browser only — never sent anywhere except the facade endpoint above.</div>
+      </div>
+    </div>
+
     <!-- Export / Import -->
     <div class="section" style="margin-top: 12px; padding-top: 24px; border-top: 1px solid #1F2937;">
       <div class="section-label">Backup &amp; Restore</div>

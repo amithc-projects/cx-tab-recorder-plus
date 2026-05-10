@@ -69,6 +69,7 @@ function loadSettings() {
     'enableCaption', 'captionPos', 'captionText',
     'enableWatermark', 'watermarkText',
     'preCaptureRules', 'resolutionSets', 'urlSets',
+    'stcEndpoint', 'stcToken',
   ];
   chrome.storage.local.get(keys, (result) => {
     const el = (id) => document.getElementById(id);
@@ -81,6 +82,8 @@ function loadSettings() {
     if (el('captionText')) el('captionText').value = result.captionText || '';
     if (el('enableWatermark')) el('enableWatermark').checked = !!result.enableWatermark;
     if (el('watermarkText')) el('watermarkText').value = result.watermarkText || '';
+    if (el('stcEndpoint')) el('stcEndpoint').value = result.stcEndpoint || '';
+    if (el('stcToken'))    el('stcToken').value    = result.stcToken    || '';
 
     renderAllRules(result.preCaptureRules || []);
     // Resolution sets must be loaded before URL sets (populates the dropdown)
@@ -105,6 +108,8 @@ function bindAutoSave() {
     { id: 'captionText',     event: 'input',  key: 'captionText',     getValue: (el) => el.value },
     { id: 'enableWatermark', event: 'change', key: 'enableWatermark', getValue: (el) => el.checked },
     { id: 'watermarkText',   event: 'input',  key: 'watermarkText',   getValue: (el) => el.value },
+    { id: 'stcEndpoint',     event: 'input',  key: 'stcEndpoint',     getValue: (el) => el.value.trim() },
+    { id: 'stcToken',        event: 'input',  key: 'stcToken',        getValue: (el) => el.value.trim() },
   ];
 
   for (const { id, event, key, getValue } of bindings) {

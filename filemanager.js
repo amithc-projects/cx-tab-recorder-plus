@@ -47,6 +47,7 @@ async function init() {
   });
 
   let folderHandle;
+  // setupSendToCloud needs the folder handle (resolved below) — wire it after we have it.
   try {
     folderHandle = await getHandle();
   } catch (err) {
@@ -76,6 +77,7 @@ async function init() {
   if (permState === 'granted') {
     btnGrant.style.display = 'none';
     tryPassHandleToComponent(manager, folderHandle);
+    setupSendToCloud(manager, folderHandle);
   } else if (permState === 'denied') {
     showStatus(`Access to "${folderHandle.name}" was denied. Re-select the folder in the file manager below.`);
   } else {
@@ -88,6 +90,7 @@ async function init() {
           btnGrant.style.display = 'none';
           hideStatus();
           tryPassHandleToComponent(manager, folderHandle);
+          setupSendToCloud(manager, folderHandle);
         } else {
           showStatus(`Permission denied. Use the file manager's own folder picker to browse.`);
         }
@@ -162,6 +165,149 @@ function tryPassHandleToComponent(manager, handle) {
   }
   // If none exist, permission is still pre-granted so the user's folder picker won't re-prompt
   // when they manually select the same folder in the component's UI.
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Send to Cloud — wires the <sidekick-manager> selection to the
+// <send-to-cloud> facade web component (vendored at vendor/send-to-cloud.js).
+// Configured via Settings → Send to Cloud (stcEndpoint + stcToken).
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _stcSetupDone = false;
+
+async function setupSendToCloud(manager, rootHandle) {
+  if (_stcSetupDone) return;
+  _stcSetupDone = true;
+
+  const btn      = document.getElementById('btnSendToCloud');
+  const countPip = document.getElementById('stcCount');
+  const dialog   = document.getElementById('stcDialog');
+  const dialogBody  = document.getElementById('stcDialogBody');
+  const dialogClose = document.getElementById('stcDialogClose');
+  if (!btn || !dialog) return;
+
+  // Hide button entirely if facade is not configured
+  const cfg = await new Promise(r => chrome.storage.local.get(['stcEndpoint', 'stcToken'], r));
+  if (!cfg.stcEndpoint || !cfg.stcToken) {
+    btn.style.display = 'none';
+    return;
+  }
+  btn.style.display = 'inline-flex';
+
+  // Track the user's navigation through the file manager so we can re-resolve
+  // selected filenames against the correct subdirectory handle. The component
+  // emits { folderName, pathLength } per workspace change; we maintain the
+  // implied stack of folder names from the root.
+  let navStack = [];
+  manager.addEventListener('sidekick:workspace', (e) => {
+    const detail = e.detail || {};
+    const pathLength = detail.pathLength || 1;
+    const folderName = detail.folderName;
+    if (pathLength <= 1 || !folderName) {
+      navStack = [];
+    } else {
+      navStack = navStack.slice(0, pathLength - 2);
+      navStack.push(folderName);
+    }
+  });
+
+  let selectedNames = [];
+  manager.addEventListener('sidekick:selection', (e) => {
+    selectedNames = (e.detail && Array.isArray(e.detail.items)) ? e.detail.items.slice() : [];
+    btn.disabled = selectedNames.length === 0;
+    if (selectedNames.length > 0) {
+      countPip.style.display = 'inline-block';
+      countPip.textContent = String(selectedNames.length);
+    } else {
+      countPip.style.display = 'none';
+    }
+  });
+
+  async function getCurrentDirHandle() {
+    let cur = rootHandle;
+    for (const name of navStack) {
+      cur = await cur.getDirectoryHandle(name);
+    }
+    return cur;
+  }
+
+  async function resolveSelectedFiles() {
+    const dir = await getCurrentDirHandle();
+    const files = [];
+    const failures = [];
+    for (const name of selectedNames) {
+      try {
+        const fh = await dir.getFileHandle(name);
+        files.push(await fh.getFile());
+      } catch (err) {
+        failures.push({ name, error: err.message });
+      }
+    }
+    return { files, failures };
+  }
+
+  btn.addEventListener('click', async () => {
+    if (selectedNames.length === 0) return;
+    btn.disabled = true;
+
+    let resolved;
+    try {
+      resolved = await resolveSelectedFiles();
+    } catch (err) {
+      dialogBody.innerHTML = `<div class="stc-error">Failed to read selected files: ${escapeHtml(err.message)}</div>`;
+      dialog.showModal();
+      btn.disabled = false;
+      return;
+    }
+    btn.disabled = false;
+
+    if (resolved.files.length === 0) {
+      dialogBody.innerHTML = `<div class="stc-error">Could not read any of the selected files.${
+        resolved.failures.length ? ' First failure: ' + escapeHtml(resolved.failures[0].error) : ''
+      }</div>`;
+      dialog.showModal();
+      return;
+    }
+
+    // Mount a fresh <send-to-cloud> for this upload session — simpler than reusing
+    // an existing one whose internal state may be stale across invocations.
+    dialogBody.innerHTML = '';
+    const stc = document.createElement('send-to-cloud');
+    stc.setAttribute('endpoint',  cfg.stcEndpoint);
+    stc.setAttribute('token',     cfg.stcToken);
+    stc.setAttribute('no-dropzone', '');
+    dialogBody.appendChild(stc);
+
+    // setFiles is added in the connectedCallback; with the IIFE bundle this is
+    // synchronous, but we tick once just to be sure.
+    setTimeout(() => {
+      if (typeof stc.setFiles === 'function') stc.setFiles(resolved.files);
+    }, 0);
+
+    if (resolved.failures.length > 0) {
+      const warn = document.createElement('div');
+      warn.className = 'stc-error';
+      warn.style.marginTop = '12px';
+      warn.textContent = `${resolved.failures.length} file(s) could not be read and were excluded.`;
+      dialogBody.appendChild(warn);
+    }
+
+    stc.addEventListener('upload-success', () => {
+      // No auto-close — user reviews the upload log and closes manually.
+    });
+
+    dialog.showModal();
+  });
+
+  dialogClose.addEventListener('click', () => dialog.close());
+  dialog.addEventListener('click', (e) => {
+    // Close when the backdrop (the dialog itself, outside its content) is clicked.
+    if (e.target === dialog) dialog.close();
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
 
 init();
