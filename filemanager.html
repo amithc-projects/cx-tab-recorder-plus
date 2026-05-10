@@ -23,7 +23,7 @@
     .folder-name { font-size: 13px; font-weight: 600; color: #93C5FD; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .folder-path { font-size: 11px; color: #6B7280; margin-left: 4px; }
 
-    #btnGrantAccess {
+    #btnGrantAccess, #btnSendToCloud {
       display: none;
       background: #2563EB; color: white; border: none;
       padding: 6px 14px; border-radius: 6px;
@@ -31,7 +31,51 @@
       font-family: inherit; white-space: nowrap; flex-shrink: 0;
       transition: background 0.15s;
     }
-    #btnGrantAccess:hover { background: #1D4ED8; }
+    #btnGrantAccess:hover, #btnSendToCloud:hover:not(:disabled) { background: #1D4ED8; }
+    #btnSendToCloud:disabled { background: #374151; color: #6B7280; cursor: not-allowed; }
+    #btnSendToCloud .count {
+      background: rgba(255,255,255,0.2); border-radius: 999px;
+      padding: 1px 7px; margin-left: 6px; font-size: 11px;
+    }
+
+    /* Modal */
+    #stcDialog {
+      border: none; padding: 0; border-radius: 12px;
+      background: #1F2937; color: #F9FAFB; max-width: 640px; width: 92vw;
+    }
+    #stcDialog::backdrop { background: rgba(0,0,0,0.6); }
+    #stcDialog header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 18px; border-bottom: 1px solid #374151;
+    }
+    #stcDialog header h2 { font-size: 14px; font-weight: 600; flex: 1; margin: 0; }
+    #stcDialog .close-btn {
+      background: none; border: none; color: #9CA3AF;
+      font-size: 22px; line-height: 1; cursor: pointer; padding: 0 4px;
+    }
+    #stcDialog .close-btn:hover { color: #F87171; }
+    #stcDialog .body { padding: 14px 18px 18px; max-height: 70vh; overflow-y: auto; }
+    #stcDialog send-to-cloud {
+      --stc-bg:        #1F2937;
+      --stc-text:      #F9FAFB;
+      --stc-muted:     #9CA3AF;
+      --stc-border:    #374151;
+      --stc-accent:    #3B82F6;
+      --stc-accent-fg: #FFFFFF;
+      --stc-accent-soft: rgba(59, 130, 246, 0.15);
+      --stc-row-hover: #374151;
+      --stc-row-alt:   #111827;
+      --stc-chip:      #374151;
+      --stc-chip-hover:#4B5563;
+      --stc-disabled-bg:#374151;
+      --stc-disabled-fg:#6B7280;
+    }
+    #stcDialog .stc-error {
+      padding: 10px 14px; border-radius: 6px;
+      background: #1F1010; color: #F87171;
+      border: 1px solid #7F1D1D;
+      font-size: 13px;
+    }
 
     #noFolderWarning {
       display: none;
@@ -81,6 +125,7 @@
       <span class="warn-link" id="btnGoToSettings">Open Settings</span>
     </div>
 
+    <button id="btnSendToCloud" disabled>☁ Send to Cloud<span class="count" id="stcCount" style="display:none">0</span></button>
     <button id="btnGrantAccess">Grant access to folder</button>
   </div>
 
@@ -90,7 +135,18 @@
     <sidekick-manager></sidekick-manager>
   </div>
 
+  <dialog id="stcDialog">
+    <header>
+      <h2 id="stcDialogTitle">Send to Cloud</h2>
+      <button class="close-btn" id="stcDialogClose" aria-label="Close">×</button>
+    </header>
+    <div class="body" id="stcDialogBody">
+      <!-- send-to-cloud component injected here at open time -->
+    </div>
+  </dialog>
+
   <script src="sidekick-manager.iife.js"></script>
+  <script src="vendor/send-to-cloud.js"></script>
   <script src="filemanager.js"></script>
 </body>
 </html>
