@@ -179,31 +179,20 @@ async function setupSendToCloud(manager, rootHandle) {
   if (_stcSetupDone) return;
   _stcSetupDone = true;
 
-  const btn      = document.getElementById('btnSendToCloud');
-  const countPip = document.getElementById('stcCount');
-  const dialog   = document.getElementById('stcDialog');
+  const dialog      = document.getElementById('stcDialog');
   const dialogBody  = document.getElementById('stcDialogBody');
   const dialogClose = document.getElementById('stcDialogClose');
-  if (!btn || !dialog) return;
+  if (!dialog) return;
 
-  // Hide button entirely if facade is not configured
+  // Don't add action if Send to Cloud is not configured
   const cfg = await new Promise(r => chrome.storage.local.get(['stcEndpoint', 'stcToken'], r));
-  if (!cfg.stcEndpoint || !cfg.stcToken) {
-    btn.style.display = 'none';
-    return;
-  }
-  btn.style.display = 'inline-flex';
+  if (!cfg.stcEndpoint || !cfg.stcToken) return;
 
-  // Track the user's navigation through the file manager so we can re-resolve
-  // selected filenames against the correct subdirectory handle. The component
-  // emits { folderName, pathLength } per workspace change; we maintain the
-  // implied stack of folder names from the root.
+  // Track navigation so selected filenames resolve against the correct subdir
   let navStack = [];
   manager.addEventListener('sidekick:workspace', (e) => {
-    const detail = e.detail || {};
-    const pathLength = detail.pathLength || 1;
-    const folderName = detail.folderName;
-    if (pathLength <= 1 || !folderName) {
+    const { pathLength, folderName } = e.detail || {};
+    if (!pathLength || pathLength <= 1 || !folderName) {
       navStack = [];
     } else {
       navStack = navStack.slice(0, pathLength - 2);
@@ -211,33 +200,13 @@ async function setupSendToCloud(manager, rootHandle) {
     }
   });
 
-  let selectedNames = [];
-  manager.addEventListener('sidekick:selection', (e) => {
-    selectedNames = (e.detail && Array.isArray(e.detail.items)) ? e.detail.items.slice() : [];
-    btn.disabled = selectedNames.length === 0;
-    if (selectedNames.length > 0) {
-      countPip.style.display = 'inline-block';
-      countPip.textContent = String(selectedNames.length);
-    } else {
-      countPip.style.display = 'none';
-    }
-  });
-
-  async function getCurrentDirHandle() {
+  async function resolveFiles(selectedIds) {
     let cur = rootHandle;
-    for (const name of navStack) {
-      cur = await cur.getDirectoryHandle(name);
-    }
-    return cur;
-  }
-
-  async function resolveSelectedFiles() {
-    const dir = await getCurrentDirHandle();
-    const files = [];
-    const failures = [];
-    for (const name of selectedNames) {
+    for (const name of navStack) cur = await cur.getDirectoryHandle(name);
+    const files = [], failures = [];
+    for (const name of selectedIds) {
       try {
-        const fh = await dir.getFileHandle(name);
+        const fh = await cur.getFileHandle(name);
         files.push(await fh.getFile());
       } catch (err) {
         failures.push({ name, error: err.message });
@@ -246,20 +215,15 @@ async function setupSendToCloud(manager, rootHandle) {
     return { files, failures };
   }
 
-  btn.addEventListener('click', async () => {
-    if (selectedNames.length === 0) return;
-    btn.disabled = true;
-
+  async function openSendToCloud(selectedIds) {
     let resolved;
     try {
-      resolved = await resolveSelectedFiles();
+      resolved = await resolveFiles(selectedIds);
     } catch (err) {
       dialogBody.innerHTML = `<div class="stc-error">Failed to read selected files: ${escapeHtml(err.message)}</div>`;
       dialog.showModal();
-      btn.disabled = false;
       return;
     }
-    btn.disabled = false;
 
     if (resolved.files.length === 0) {
       dialogBody.innerHTML = `<div class="stc-error">Could not read any of the selected files.${
@@ -269,20 +233,13 @@ async function setupSendToCloud(manager, rootHandle) {
       return;
     }
 
-    // Mount a fresh <send-to-cloud> for this upload session — simpler than reusing
-    // an existing one whose internal state may be stale across invocations.
     dialogBody.innerHTML = '';
     const stc = document.createElement('send-to-cloud');
-    stc.setAttribute('endpoint',  cfg.stcEndpoint);
-    stc.setAttribute('token',     cfg.stcToken);
+    stc.setAttribute('endpoint', cfg.stcEndpoint);
+    stc.setAttribute('token', cfg.stcToken);
     stc.setAttribute('no-dropzone', '');
     dialogBody.appendChild(stc);
-
-    // setFiles is added in the connectedCallback; with the IIFE bundle this is
-    // synchronous, but we tick once just to be sure.
-    setTimeout(() => {
-      if (typeof stc.setFiles === 'function') stc.setFiles(resolved.files);
-    }, 0);
+    setTimeout(() => { if (typeof stc.setFiles === 'function') stc.setFiles(resolved.files); }, 0);
 
     if (resolved.failures.length > 0) {
       const warn = document.createElement('div');
@@ -292,18 +249,16 @@ async function setupSendToCloud(manager, rootHandle) {
       dialogBody.appendChild(warn);
     }
 
-    stc.addEventListener('upload-success', () => {
-      // No auto-close — user reviews the upload log and closes manually.
-    });
-
     dialog.showModal();
-  });
+  }
+
+  // Register as a selection action — appears in the component's action bar
+  manager.selectionActions = [
+    { label: 'Send to Cloud', icon: '☁', onClick: (selectedIds) => openSendToCloud(selectedIds) }
+  ];
 
   dialogClose.addEventListener('click', () => dialog.close());
-  dialog.addEventListener('click', (e) => {
-    // Close when the backdrop (the dialog itself, outside its content) is clicked.
-    if (e.target === dialog) dialog.close();
-  });
+  dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close(); });
 }
 
 function escapeHtml(s) {
