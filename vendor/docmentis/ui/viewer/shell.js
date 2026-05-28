@@ -1,0 +1,361 @@
+import { createStore } from "../framework/store";
+import { initialState } from "./state";
+import { reducer } from "./reducer";
+import { createEffects } from "./effects";
+import { createToolbar } from "./components/Toolbar";
+import { createSubToolbar } from "./components/SubToolbar";
+import { createLeftPanel } from "./components/LeftPanel";
+import { createViewport } from "./components/Viewport";
+import { createSheetTabBar } from "./components/SheetTabBar";
+import { createRightPanel } from "./components/RightPanel";
+import { createPasswordDialog } from "./components/PasswordDialog";
+import { createPrintDialog } from "./components/PrintDialog";
+import { createLoadingOverlay } from "./components/LoadingOverlay";
+import { inlineStyles } from "./styles-inline.js";
+import { createLiveRegion } from "./a11y";
+import { createI18n } from "./i18n/index.js";
+import { createAnnotationUndoManager } from "./tools/AnnotationUndoManager";
+export function mountViewerShell(root, engine, workerClient, overrides, showAttribution = true, showLoadingOverlay = true, locale, translations, customPageOverlay) {
+    const i18n = createI18n(locale, translations);
+    const layout = document.createElement("div");
+    layout.className = "udoc-viewer-root";
+    // Inject styles into the viewer
+    const style = document.createElement("style");
+    style.textContent = inlineStyles;
+    layout.appendChild(style);
+    const toolbarSlot = document.createElement("div");
+    toolbarSlot.className = "udoc-slot udoc-toolbar-slot";
+    const subToolbarSlot = document.createElement("div");
+    subToolbarSlot.className = "udoc-slot udoc-subtoolbar-slot";
+    const bodySlot = document.createElement("div");
+    bodySlot.className = "udoc-slot udoc-body-slot";
+    const leftPanelSlot = document.createElement("div");
+    leftPanelSlot.className = "udoc-slot udoc-left-panel-slot";
+    const viewportSlot = document.createElement("div");
+    viewportSlot.className = "udoc-slot udoc-viewport-slot";
+    const rightPanelSlot = document.createElement("div");
+    rightPanelSlot.className = "udoc-slot udoc-right-panel-slot";
+    // ARIA landmark roles for F6 region navigation
+    toolbarSlot.setAttribute("role", "region");
+    toolbarSlot.setAttribute("aria-label", i18n.t("shell.regionToolbar"));
+    toolbarSlot.setAttribute("tabindex", "-1");
+    leftPanelSlot.setAttribute("role", "region");
+    leftPanelSlot.setAttribute("aria-label", i18n.t("shell.regionSidePanel"));
+    leftPanelSlot.setAttribute("tabindex", "-1");
+    viewportSlot.setAttribute("role", "region");
+    viewportSlot.setAttribute("aria-label", i18n.t("shell.regionDocument"));
+    viewportSlot.setAttribute("tabindex", "-1");
+    rightPanelSlot.setAttribute("role", "region");
+    rightPanelSlot.setAttribute("aria-label", i18n.t("shell.regionSearchComments"));
+    rightPanelSlot.setAttribute("tabindex", "-1");
+    // Skip navigation link
+    const skipLink = document.createElement("a");
+    skipLink.href = "#";
+    skipLink.className = "udoc-skip-link";
+    skipLink.textContent = i18n.t("shell.skipToDocument");
+    skipLink.addEventListener("click", (e) => {
+        e.preventDefault();
+        const focusTarget = viewportSlot.querySelector('[tabindex="0"]') ?? viewportSlot;
+        focusTarget.focus();
+    });
+    // Panel overlay for mobile (closes panels when tapping outside)
+    const panelOverlay = document.createElement("div");
+    panelOverlay.className = "udoc-panel-overlay";
+    bodySlot.append(leftPanelSlot, viewportSlot, rightPanelSlot, panelOverlay);
+    layout.append(skipLink, toolbarSlot, subToolbarSlot, bodySlot);
+    root.appendChild(layout);
+    // Live region for screen reader announcements
+    const liveRegion = createLiveRegion();
+    layout.appendChild(liveRegion.el);
+    // Debounced page announcement to avoid rapid-fire in continuous scroll
+    let pageAnnounceTimer = null;
+    function announcePageDebounced(page, pageCount) {
+        if (pageAnnounceTimer)
+            clearTimeout(pageAnnounceTimer);
+        pageAnnounceTimer = setTimeout(() => {
+            liveRegion.announce(i18n.t("shell.pageOfTotal", { page, pageCount }));
+            pageAnnounceTimer = null;
+        }, 500);
+    }
+    // Keyboard shortcut help (screen-reader accessible)
+    const shortcutHelp = document.createElement("div");
+    shortcutHelp.id = "udoc-shortcut-help";
+    shortcutHelp.className = "udoc-sr-only";
+    shortcutHelp.textContent = i18n.t("shell.shortcutHelp");
+    layout.appendChild(shortcutHelp);
+    layout.setAttribute("aria-describedby", "udoc-shortcut-help");
+    // Always create fresh mutable collections to prevent sharing across viewers
+    const mergedInitialState = {
+        ...initialState,
+        pageAnnotations: new Map(),
+        annotationsLoading: new Set(),
+        pageText: new Map(),
+        textLoading: new Set(),
+        textFailed: new Set(),
+        disabledPanels: new Set(),
+        disabledTools: new Set(["annotate", "markup"]),
+        ...overrides,
+    };
+    const store = createStore(reducer, mergedInitialState, { batched: true });
+    const undoManager = createAnnotationUndoManager(store);
+    const toolbar = createToolbar();
+    toolbar.mount(toolbarSlot, store, i18n);
+    const subToolbar = createSubToolbar();
+    subToolbar.mount(subToolbarSlot, store, i18n, undoManager);
+    const leftPanel = createLeftPanel();
+    leftPanel.mount(leftPanelSlot, store, workerClient, i18n);
+    const viewport = createViewport(showAttribution, customPageOverlay);
+    viewport.mount(viewportSlot, store, workerClient, i18n, (payload) => callbacks.onViewportChange?.(payload), (payload) => callbacks.onAnnotationHover?.(payload), (payload) => callbacks.onAnnotationClick?.(payload));
+    const sheetTabBar = createSheetTabBar();
+    sheetTabBar.mount(viewportSlot, store);
+    const rightPanel = createRightPanel();
+    rightPanel.mount(rightPanelSlot, store, i18n);
+    const effects = createEffects(store, engine);
+    // Callbacks that can be set after mounting
+    let callbacks = {};
+    // Loading overlay (mounted to viewport slot, shows during document download)
+    const loadingOverlay = showLoadingOverlay ? createLoadingOverlay(showAttribution) : null;
+    loadingOverlay?.mount(layout, store, i18n);
+    // Password dialog (mounted to viewport slot so it covers only the viewer area)
+    const passwordDialog = createPasswordDialog();
+    passwordDialog.mount(viewportSlot, store, i18n, {
+        onSubmit: (password) => {
+            callbacks.onPasswordSubmit?.(password);
+        },
+    });
+    // Handle panel overlay click to close panels (for mobile)
+    const handleOverlayClick = () => {
+        store.dispatch({ type: "CLOSE_PANEL" });
+    };
+    panelOverlay.addEventListener("click", handleOverlayClick);
+    // Keyboard shortcuts (scoped to viewer — only fires when focus is inside)
+    layout.setAttribute("tabindex", "-1");
+    const handleKeyDown = (e) => {
+        // Ctrl+F / Cmd+F to open search panel
+        if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+            e.preventDefault();
+            const state = store.getState();
+            if (state.activePanel !== "search") {
+                store.dispatch({ type: "TOGGLE_PANEL", panel: "search" });
+            }
+        }
+        // Zoom in: Ctrl++ or Ctrl+=
+        if ((e.ctrlKey || e.metaKey) && (e.key === "=" || e.key === "+") && !e.shiftKey) {
+            e.preventDefault();
+            store.dispatch({ type: "ZOOM_IN" });
+        }
+        // Zoom out: Ctrl+-
+        if ((e.ctrlKey || e.metaKey) && e.key === "-" && !e.shiftKey) {
+            e.preventDefault();
+            store.dispatch({ type: "ZOOM_OUT" });
+        }
+        // Reset zoom: Ctrl+0
+        if ((e.ctrlKey || e.metaKey) && e.key === "0" && !e.shiftKey) {
+            e.preventDefault();
+            store.dispatch({ type: "SET_ZOOM", zoom: 1 });
+        }
+        // Ctrl+P / Cmd+P to open print dialog
+        if ((e.ctrlKey || e.metaKey) && e.key === "p") {
+            e.preventDefault();
+            const state = store.getState();
+            if (state.printButtonVisible && !state.showPrintDialog) {
+                store.dispatch({ type: "SHOW_PRINT_DIALOG" });
+            }
+        }
+        // Undo: Ctrl+Z / Cmd+Z
+        if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+            if (undoManager.canUndo()) {
+                e.preventDefault();
+                undoManager.undo();
+            }
+        }
+        // Redo: Ctrl+Shift+Z / Cmd+Shift+Z  or  Ctrl+Y / Cmd+Y
+        if ((e.ctrlKey || e.metaKey) && ((e.key === "z" && e.shiftKey) || e.key === "y")) {
+            if (undoManager.canRedo()) {
+                e.preventDefault();
+                undoManager.redo();
+            }
+        }
+        // F6: cycle focus between regions
+        if (e.key === "F6") {
+            e.preventDefault();
+            const regions = [toolbarSlot, leftPanelSlot, viewportSlot, rightPanelSlot].filter((r) => r.offsetParent !== null);
+            if (regions.length === 0)
+                return;
+            const currentIndex = regions.findIndex((r) => r.contains(document.activeElement));
+            const direction = e.shiftKey ? -1 : 1;
+            const nextIndex = (currentIndex + direction + regions.length) % regions.length;
+            const target = regions[nextIndex];
+            const focusable = target.querySelector('button:not([disabled]), input:not([disabled]), [tabindex="0"]');
+            (focusable ?? target).focus();
+        }
+        // Close panel, print dialog, or deactivate tool: Escape
+        if (e.key === "Escape") {
+            const state = store.getState();
+            if (state.showPrintDialog) {
+                e.preventDefault();
+                store.dispatch({ type: "HIDE_PRINT_DIALOG" });
+            }
+            else if (state.activeTool.kind !== "pointer") {
+                e.preventDefault();
+                store.dispatch({ type: "SET_ACTIVE_TOOL", tool: { kind: "pointer" } });
+            }
+            else if (state.activePanel !== null) {
+                e.preventDefault();
+                store.dispatch({ type: "CLOSE_PANEL" });
+            }
+        }
+        // Ctrl+A / Cmd+A: select all text in visible pages only
+        if ((e.ctrlKey || e.metaKey) && e.key === "a" && !e.shiftKey) {
+            const tag = document.activeElement?.tagName;
+            if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") {
+                e.preventDefault();
+                const textLayers = viewportSlot.querySelectorAll(".udoc-spread__text-layer");
+                const selection = document.getSelection();
+                if (selection && textLayers.length > 0) {
+                    selection.removeAllRanges();
+                    const range = document.createRange();
+                    range.setStartBefore(textLayers[0]);
+                    range.setEndAfter(textLayers[textLayers.length - 1]);
+                    selection.addRange(range);
+                }
+            }
+        }
+        // ? key: announce keyboard shortcuts
+        if (e.key === "?" && !e.ctrlKey && !e.metaKey) {
+            // Don't trigger when typing in an input
+            const tag = document.activeElement?.tagName;
+            if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") {
+                liveRegion.announce(i18n.t("shell.shortcutHelpAnnounce"));
+            }
+        }
+    };
+    layout.addEventListener("keydown", handleKeyDown);
+    // Theme management
+    function resolveIsDark(theme) {
+        if (theme === "dark")
+            return true;
+        if (theme === "light")
+            return false;
+        return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    }
+    function applyThemeClass(isDark) {
+        layout.classList.toggle("udoc-viewer-dark", isDark);
+    }
+    let systemDarkQuery = null;
+    let systemDarkHandler = null;
+    function setupSystemListener() {
+        systemDarkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+        systemDarkHandler = (e) => applyThemeClass(e.matches);
+        systemDarkQuery.addEventListener("change", systemDarkHandler);
+    }
+    function cleanupSystemListener() {
+        if (systemDarkQuery && systemDarkHandler) {
+            systemDarkQuery.removeEventListener("change", systemDarkHandler);
+            systemDarkQuery = null;
+            systemDarkHandler = null;
+        }
+    }
+    // Apply initial theme
+    applyThemeClass(resolveIsDark(mergedInitialState.theme));
+    if (mergedInitialState.theme === "system") {
+        setupSystemListener();
+    }
+    // Subscribe to panel state to toggle udoc-panel-open class,
+    // toolbar slot visibility, theme changes, and live region announcements
+    const unsubPanelClass = store.subscribeRender((prev, next) => {
+        if ((prev.activePanel === null) !== (next.activePanel === null)) {
+            layout.classList.toggle("udoc-panel-open", next.activePanel !== null);
+        }
+        if (prev.toolbarVisible !== next.toolbarVisible) {
+            toolbarSlot.style.display = next.toolbarVisible ? "" : "none";
+        }
+        if (prev.theme !== next.theme) {
+            if (prev.theme === "system")
+                cleanupSystemListener();
+            if (next.theme === "system")
+                setupSystemListener();
+            applyThemeClass(resolveIsDark(next.theme));
+        }
+        if (prev.textSelectionDisabled !== next.textSelectionDisabled) {
+            layout.classList.toggle("udoc-viewer--no-text-select", next.textSelectionDisabled);
+        }
+        // Re-enable panel transitions after one frame so future open/close animates normally
+        if (next.panelTransitionsDisabled && !prev.panelTransitionsDisabled) {
+            requestAnimationFrame(() => {
+                store.dispatch({ type: "ENABLE_PANEL_TRANSITIONS" });
+            });
+        }
+        // --- Live region announcements for screen readers ---
+        if (prev.page !== next.page && next.pageCount > 0) {
+            announcePageDebounced(next.page, next.pageCount);
+        }
+        else if (prev.zoom !== next.zoom) {
+            liveRegion.announce(i18n.t("shell.zoomPercent", { percent: Math.round(next.zoom * 100) }));
+        }
+        else if (prev.activePanel !== next.activePanel) {
+            if (next.activePanel !== null) {
+                liveRegion.announce(i18n.t("shell.panelOpened", { panel: next.activePanel }));
+            }
+            else {
+                liveRegion.announce(i18n.t("shell.panelClosed"));
+            }
+        }
+    });
+    // Apply initial toolbar visibility
+    if (!mergedInitialState.toolbarVisible) {
+        toolbarSlot.style.display = "none";
+    }
+    // Apply initial text selection state
+    if (mergedInitialState.textSelectionDisabled) {
+        layout.classList.add("udoc-viewer--no-text-select");
+    }
+    store.dispatch({ type: "__INIT__" });
+    // Print dialog (mounted to layout root so it covers toolbar + viewport)
+    const printDialog = createPrintDialog();
+    printDialog.mount(layout, store, i18n, {
+        onPrint: (result) => {
+            store.dispatch({ type: "HIDE_PRINT_DIALOG" });
+            callbacks.onPrint?.(result);
+        },
+        onCancel: () => {
+            store.dispatch({ type: "HIDE_PRINT_DIALOG" });
+        },
+    });
+    function setCallbacks(newCallbacks) {
+        callbacks = { ...callbacks, ...newCallbacks };
+        toolbar.setOnDownload(callbacks.onDownload ?? null);
+        toolbar.setOnPrint(() => {
+            store.dispatch({ type: "SHOW_PRINT_DIALOG" });
+        });
+    }
+    function destroy() {
+        cleanupSystemListener();
+        if (pageAnnounceTimer)
+            clearTimeout(pageAnnounceTimer);
+        liveRegion.destroy();
+        layout.removeEventListener("keydown", handleKeyDown);
+        panelOverlay.removeEventListener("click", handleOverlayClick);
+        unsubPanelClass();
+        undoManager.destroy();
+        effects.destroy();
+        toolbar.destroy();
+        subToolbar.destroy();
+        leftPanel.destroy();
+        viewport.destroy();
+        sheetTabBar.destroy();
+        rightPanel.destroy();
+        loadingOverlay?.destroy();
+        passwordDialog.destroy();
+        printDialog.destroy();
+        layout.remove();
+    }
+    return {
+        store,
+        dispatch: store.dispatch,
+        getState: store.getState,
+        setCallbacks,
+        destroy,
+    };
+}
+//# sourceMappingURL=shell.js.map

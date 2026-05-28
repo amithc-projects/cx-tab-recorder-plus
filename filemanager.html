@@ -3,6 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <title>File Manager — ZumiLabs OmniCapt</title>
+  <!-- Maps the docMentis bare specifier to the vendored ESM files.
+       Must appear before any module scripts. The WASM (~18 MB) is a separate
+       binary file and is only fetched when an Office file is first previewed. -->
+  <script type="importmap">
+    {"imports":{"@docmentis/udoc-viewer":"./vendor/docmentis/index.js"}}
+  </script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
