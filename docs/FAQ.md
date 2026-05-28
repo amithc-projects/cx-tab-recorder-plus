@@ -1,4 +1,4 @@
-# OmniCapt — Technical FAQ for AI Reviewers
+# ZumiLabs OmniCapt — Technical FAQ for AI Reviewers
 
 This document answers the questions an AI is most likely to ask when first reading this codebase. It explains *why* the code is structured the way it is, documents the non-obvious constraints, and flags the known failure modes.
 

@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>File Manager — OmniCapt</title>
+  <title>File Manager — ZumiLabs OmniCapt</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
@@ -55,20 +55,20 @@
     }
     #stcDialog .close-btn:hover { color: #F87171; }
     #stcDialog .body { padding: 14px 18px 18px; max-height: 70vh; overflow-y: auto; }
-    #stcDialog send-to-cloud {
-      --stc-bg:        #1F2937;
-      --stc-text:      #F9FAFB;
-      --stc-muted:     #9CA3AF;
-      --stc-border:    #374151;
-      --stc-accent:    #3B82F6;
-      --stc-accent-fg: #FFFFFF;
-      --stc-accent-soft: rgba(59, 130, 246, 0.15);
-      --stc-row-hover: #374151;
-      --stc-row-alt:   #111827;
-      --stc-chip:      #374151;
-      --stc-chip-hover:#4B5563;
-      --stc-disabled-bg:#374151;
-      --stc-disabled-fg:#6B7280;
+    #stcDialog zumilabs-cloudsend {
+      --cloudsend-bg:          #1F2937;
+      --cloudsend-text:        #F9FAFB;
+      --cloudsend-muted:       #9CA3AF;
+      --cloudsend-border:      #374151;
+      --cloudsend-accent:      #3B82F6;
+      --cloudsend-accent-fg:   #FFFFFF;
+      --cloudsend-accent-soft: rgba(59, 130, 246, 0.15);
+      --cloudsend-row-hover:   #374151;
+      --cloudsend-row-alt:     #111827;
+      --cloudsend-chip:        #374151;
+      --cloudsend-chip-hover:  #4B5563;
+      --cloudsend-disabled-bg: #374151;
+      --cloudsend-disabled-fg: #6B7280;
     }
     #stcDialog .stc-error {
       padding: 10px 14px; border-radius: 6px;
@@ -140,12 +140,12 @@
       <button class="close-btn" id="stcDialogClose" aria-label="Close">×</button>
     </header>
     <div class="body" id="stcDialogBody">
-      <!-- send-to-cloud component injected here at open time -->
+      <!-- zumilabs-cloudsend component injected here at open time -->
     </div>
   </dialog>
 
   <script src="sidekick-manager.iife.js"></script>
-  <script src="vendor/send-to-cloud.js"></script>
+  <script src="vendor/cloudsend.js"></script>
   <script src="filemanager.js"></script>
 </body>
 </html>

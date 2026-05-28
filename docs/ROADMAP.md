@@ -1,4 +1,4 @@
-# OmniCapt - Roadmap
+# ZumiLabs OmniCapt - Roadmap
 
 This document tracks planned improvements and recently shipped features, prioritised by impact and feasibility.
 

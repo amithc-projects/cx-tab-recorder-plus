@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "OmniCapt",
+  "name": "ZumiLabs OmniCapt",
   "version": "4.0",
   "description": "Capture screenshots, record browser tabs, annotate, and batch-capture multiple URLs or open tabs.",
   "permissions": ["activeTab", "tabs", "tabGroups", "debugger", "scripting", "storage", "tabCapture", "offscreen", "downloads", "notifications", "clipboardWrite", "clipboardRead", "contextMenus"],
@@ -16,7 +16,7 @@
   "background": { "service_worker": "background.js" },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "OmniCapt",
+    "default_title": "ZumiLabs OmniCapt",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",

@@ -1,4 +1,4 @@
-// filemanager.js — OmniCapt File Manager integration
+// filemanager.js — ZumiLabs OmniCapt File Manager integration
 
 const DB_NAME = 'TabRecorderDB';
 const STORE_NAME = 'Handles';
@@ -168,8 +168,8 @@ function tryPassHandleToComponent(manager, handle) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Send to Cloud — wires the <sidekick-manager> selection to the
-// <send-to-cloud> facade web component (vendored at vendor/send-to-cloud.js).
+// CloudSend — wires the <sidekick-manager> selection to the
+// <zumilabs-cloudsend> facade web component (vendored at vendor/cloudsend.js).
 // Configured via Settings → Send to Cloud (stcEndpoint + stcToken).
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -234,7 +234,7 @@ async function setupSendToCloud(manager, rootHandle) {
     }
 
     dialogBody.innerHTML = '';
-    const stc = document.createElement('send-to-cloud');
+    const stc = document.createElement('zumilabs-cloudsend');
     stc.setAttribute('endpoint', cfg.stcEndpoint);
     stc.setAttribute('token', cfg.stcToken);
     stc.setAttribute('no-dropzone', '');

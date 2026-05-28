@@ -264,8 +264,8 @@ function showToast(message) {
 
 // --- FULL PAGE CAPTURE ---
 async function performFullPageCapture(intent) {
-  if (window.isOmniCaptCapturing) return;
-  window.isOmniCaptCapturing = true;
+  if (window.isZumiLabsOmniCaptCapturing) return;
+  window.isZumiLabsOmniCaptCapturing = true;
   prepareForCapture();
   
   const styleEl = document.createElement('style');
@@ -355,7 +355,7 @@ async function performFullPageCapture(intent) {
 
   const stitchedUrl = await stichImages(snaps, viewportHeight);
   if (!stitchedUrl) {
-    window.isOmniCaptCapturing = false;
+    window.isZumiLabsOmniCaptCapturing = false;
     return showToast("⚠️ Capture Cancelled: No frames acquired.");
   }
   
@@ -377,7 +377,7 @@ async function performFullPageCapture(intent) {
   else if (intent === 'save') showToast("Saved Full Page! ");
   else showToast("Saved & Copied Full Page! ");
   
-  window.isOmniCaptCapturing = false;
+  window.isZumiLabsOmniCaptCapturing = false;
 }
 
 function stichImages(snaps, realViewportHeight) {

@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Settings — OmniCapt</title>
+  <title>Settings — ZumiLabs OmniCapt</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
@@ -110,7 +110,7 @@
     <div class="page-header">
    <img src="icons/icon128.png" width="26" height="26" style="display:block;">
       <div>
-        <div class="page-title">OmniCapt — Settings</div>
+        <div class="page-title">ZumiLabs OmniCapt — Settings</div>
         <div class="page-subtitle">All preferences are saved automatically</div>
       </div>
     </div>
@@ -304,11 +304,11 @@
       <div class="card">
         <div class="field-hint" style="margin-bottom: 14px;">
           Configure the
-          <strong style="color:#9CA3AF;">send-to-cloud</strong>
+          <strong style="color:#9CA3AF;">zumilabs-cloudsend</strong>
           facade so the file manager can upload selected screenshots to Jira, Slack, GitHub, Confluence, Miro, S3, Google Drive, or Contentful. Leave blank to hide the upload button.
         </div>
         <div class="field-label" style="margin-bottom:6px;">Facade endpoint</div>
-        <input type="text" id="stcEndpoint" class="mono full-width" placeholder="https://send-to-cloud.localhost/api/v1">
+        <input type="text" id="stcEndpoint" class="mono full-width" placeholder="https://your-cloudsend-facade.example.com/api/v1">
 
         <div class="field-label" style="margin-top:14px; margin-bottom:6px;">Bearer token (JWT)</div>
         <input type="text" id="stcToken" class="mono full-width" placeholder="eyJhbGciOi...  (or 'dummy' if DEV_AUTH_BYPASS is set on the server)">

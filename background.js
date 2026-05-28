@@ -9,7 +9,7 @@ let isPausedRecording = false;
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: 'trp-open',
-    title: 'OmniCapt',
+    title: 'ZumiLabs OmniCapt',
     contexts: ['all']
   });
 });

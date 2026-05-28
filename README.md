@@ -1,6 +1,6 @@
-# OmniCapt
+# ZumiLabs OmniCapt
 
-OmniCapt is a feature-rich Google Chrome extension for recording browser tabs, capturing screenshots, annotating over pages, and batch-capturing multiple URLs or open tabs at multiple resolutions.
+ZumiLabs OmniCapt is a feature-rich Google Chrome extension for recording browser tabs, capturing screenshots, annotating over pages, and batch-capturing multiple URLs or open tabs at multiple resolutions.
 
 ## Features
 

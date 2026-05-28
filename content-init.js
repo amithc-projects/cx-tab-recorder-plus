@@ -1,11 +1,11 @@
 // content-init.js
 
 // 0. SAFETY GUARD (Reset mechanism)
-if (window.hasOmniCaptRun) {
+if (window.hasZumiLabsOmniCaptRun) {
   // We allow re-running if needed, or just log it
-  console.log("OmniCapt scripts re-injected");
+  console.log("ZumiLabs OmniCapt scripts re-injected");
 }
-window.hasOmniCaptRun = true;
+window.hasZumiLabsOmniCaptRun = true;
 
 // --- SHARED GLOBALS (var is used for cross-file scope) ---
 var timerInterval = null;
