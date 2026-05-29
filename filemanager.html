@@ -3,12 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <title>File Manager — ZumiLabs OmniCapt</title>
-  <!-- Maps the docMentis bare specifier to the vendored ESM files.
-       Must appear before any module scripts. The WASM (~18 MB) is a separate
-       binary file and is only fetched when an Office file is first previewed. -->
-  <script type="importmap">
-    {"imports":{"@docmentis/udoc-viewer":"./vendor/docmentis/index.js","officeparser":"./vendor/officeparser.mjs"}}
-  </script>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="icon" type="image/png" sizes="48x48" href="icons/icon48.png">
+  <!-- No import map: the file browser lazy-loads the vendored ESM (docMentis,
+       officeparser) via relative ./vendor/ URLs resolved at runtime. MV3's CSP
+       forbids inline scripts, so an import map cannot be used here. The WASM
+       (~18 MB) is a separate binary, fetched only when an Office file is first
+       previewed. -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; }
@@ -106,7 +107,7 @@
     .component-container {
       flex: 1; width: 100%; overflow: hidden;
     }
-    sidekick-manager {
+    zumilabs-file-browser {
       display: block; width: 100%; height: 100%;
     }
   </style>
@@ -115,7 +116,7 @@
 
   <div class="header">
     <div class="logo">
-      <img src="icons/icon128.png" width="22" height="22" style="display:block;">
+      <img src="logo-mark.svg" width="22" height="22" style="display:block;">
       File Manager
     </div>
     <div class="header-divider"></div>
@@ -137,7 +138,12 @@
   <div id="statusBar"></div>
 
   <div class="component-container">
-    <sidekick-manager></sidekick-manager>
+    <!-- Office viewer enabled: the ~1.7 MB docMentis JS is vendored locally
+         (vendor/docmentis/), and its 19 MB WASM is fetched on demand from
+         jsDelivr (docMentis's built-in CDN fallback). Requires network on first
+         Office preview. DOCX/PPTX/XLSX also support "View/Copy/Save as Markdown"
+         via the small officeparser, which works offline. -->
+    <zumilabs-file-browser></zumilabs-file-browser>
   </div>
 
   <dialog id="stcDialog">

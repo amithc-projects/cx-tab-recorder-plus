@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="512" height="512" viewBox="0 0 4000 4000" version="1.1"
+     xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     xml:space="preserve" role="img" aria-label="ZumiLabs"
+     style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+  <style>
+    .zl-body        { fill: #FFFFFF; }
+    .zl-glass       { fill: #C026D3; }
+    .zl-liquid      { fill: #FFFFFF; }
+    .zl-z           { fill: #C026D3; }
+    .zl-bubble-top  { fill: #FFFFFF; }
+    .zl-bubble-mid  { fill: #FFFFFF; }
+    .zl-bubble-neck { fill: #FFFFFF; }
+    .zl-tile-bg     { fill: #C026D3; }
+  </style>
+  <rect class="zl-tile-bg" x="0" y="0" width="4000" height="4000" rx="760" ry="760"/>
+  <g transform="translate(2000 2000) scale(0.74) translate(-2000 -2000)">
+  <!-- Flask body / outline silhouette -->
+  <path class="zl-body"
+        d="M1492.276,1375c-42.683,0 -71.138,15.257 -85.366,45.77c-14.228,30.514 -3.557,55.942 32.012,76.284l170.732,99.169l0,373.792l-523.476,1565.874c-26.016,120.217 -51.016,216.629 -8.333,272.57c30.139,36.936 91.671,73.998 120.122,87.374c18.557,8.724 -64.59,0 0,0l1583.232,8.333c163.618,0 195.325,-43.014 245.122,-104.041c42.683,-55.942 67.683,-127.354 25,-239.237l-502.642,-1590.874l0,-373.792l170.732,-99.169c35.569,-20.342 46.24,-45.77 32.012,-76.284c-14.228,-30.514 -42.683,-45.77 -85.366,-45.77l-117.378,0l0,114.426l-939.024,0l0,-114.426l-117.378,0Z"/>
+
+  <!-- Interior glass (white) -->
+  <path class="zl-glass" style="fill-rule:nonzero;"
+        d="M1783.333,1375l0,534.219l-525,1658.472c-16.667,74.419 -8.333,130.233 25,167.442c27.778,26.578 75,39.867 141.667,39.867l1300,0c66.667,0 113.889,-13.289 141.667,-39.867c33.333,-37.209 41.667,-93.023 25,-167.442l-525,-1658.472l0,-534.219l-583.333,0Z"/>
+
+  <!-- Mouth / lip (white) -->
+  <path class="zl-glass"
+        d="M1608.203,1377.467c0,0 1020.581,-2.467 943.16,-2.467l-0.543,116.716c-77.421,0 -907.185,-5.059 -943.611,-2.279"/>
+
+  <!-- Liquid -->
+  <path class="zl-liquid" style="fill-rule:nonzero;"
+        d="M1796.543,2150l561.08,0l405.224,1380c15.586,75.322 -5.195,126.433 -62.342,153.333l-1246.844,0c-57.147,-26.901 -77.928,-78.012 -62.342,-153.333l405.224,-1380Z"/>
+
+  <!-- The "Z" glyph -->
+  <path class="zl-z" style="fill-rule:nonzero;"
+        d="M1775,2475l600,0l0,225l-600,0l0,-225Zm366.667,225l233.333,0l-366.667,400l-233.333,0l366.667,-400Zm-366.667,400l600,0l0,225l-600,0l0,-225Z"/>
+
+  <!-- Rising bubbles -->
+  <ellipse class="zl-bubble-top" cx="1845.833" cy="379.167" rx="241.667" ry="283.333"/>
+  <ellipse class="zl-bubble-mid" cx="2391.667" cy="870.833" rx="183.333" ry="200"/>
+
+  <!-- Neck bubbles -->
+  <circle class="zl-bubble-neck" cx="1979.167" cy="1504.167" r="79.167"/>
+  <path class="zl-bubble-neck"
+        d="M2204.694,1738.251c52.477,-6.608 100.447,30.633 107.055,83.11c6.608,52.477 -30.633,100.447 -83.11,107.055c-52.477,6.608 -100.447,-30.633 -107.055,-83.11c-6.608,-52.477 30.633,-100.447 83.11,-107.055Z"/>
+  </g>
+</svg>

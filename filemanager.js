@@ -39,7 +39,7 @@ function hideStatus() {
 }
 
 async function init() {
-  const manager = document.querySelector('sidekick-manager');
+  const manager = document.querySelector('zumilabs-file-browser');
 
   // Go to settings link
   document.getElementById('btnGoToSettings').addEventListener('click', () => {
@@ -127,8 +127,8 @@ async function init() {
     manager.navigate(deepPath, opts);
   }
 
-  // Listen for sidekick events
-  manager.addEventListener('sidekick:ready', () => {
+  // Listen for file browser events
+  manager.addEventListener('filebrowser:ready', () => {
     // Re-try passing handle in case the component wasn't ready yet on init
     if (permState === 'granted') {
       tryPassHandleToComponent(manager, folderHandle);
@@ -137,7 +137,7 @@ async function init() {
     attemptDeepNav();
   });
 
-  manager.addEventListener('sidekick:workspace', (e) => {
+  manager.addEventListener('filebrowser:workspace', (e) => {
     // Update breadcrumb display
     const pathEl = document.getElementById('folderPathDisplay');
     if (pathEl && e.detail && e.detail.folderName) {
@@ -147,7 +147,7 @@ async function init() {
     attemptDeepNav();
   });
 
-  manager.addEventListener('sidekick:error', (e) => {
+  manager.addEventListener('filebrowser:error', (e) => {
     const msg = e.detail && e.detail.message ? e.detail.message : 'An error occurred in the file manager.';
     showStatus(msg);
   });
@@ -168,7 +168,7 @@ function tryPassHandleToComponent(manager, handle) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CloudSend — wires the <sidekick-manager> selection to the
+// CloudSend — wires the <zumilabs-file-browser> selection to the
 // <zumilabs-cloudsend> facade web component (vendored at vendor/cloudsend.js).
 // Configured via Settings → Send to Cloud (stcEndpoint + stcToken).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -190,7 +190,7 @@ async function setupSendToCloud(manager, rootHandle) {
 
   // Track navigation so selected filenames resolve against the correct subdir
   let navStack = [];
-  manager.addEventListener('sidekick:workspace', (e) => {
+  manager.addEventListener('filebrowser:workspace', (e) => {
     const { pathLength, folderName } = e.detail || {};
     if (!pathLength || pathLength <= 1 || !folderName) {
       navStack = [];
